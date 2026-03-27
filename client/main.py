@@ -7,14 +7,10 @@ import secrets
 import pyotp
 import qrcode
 from PIL import Image, ImageTk
+import requests
 
-users_db = {}
-
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_password(stored_hash, password):
-    return stored_hash == hash_password(password)
+#API_BASE_URL = "https://127.0.0.1:8000"
+API_BASE_URL = "http://127.0.0.1:8000"
 
 class IMClientAPI:
     def __init__(self):
@@ -22,25 +18,58 @@ class IMClientAPI:
         self.current_user = None
 
     def register(self, username, password):
-        if username in users_db:
-            return False, "Username already exists"
-        otp_secret = pyotp.random_base32()
-        users_db[username] = {
-            "password_hash": hash_password(password),
-            "otp_secret": otp_secret
-        }
-        return True, otp_secret
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/register",
+                json={"username": username, "password": password},
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        data = resp.json()
+        self.current_user = username
+        return True, data["otp_secret"]
 
     def login(self, username, password, otp):
-        if username not in users_db:
-            return False, "User not found"
-        user = users_db[username]
-        if not verify_password(user["password_hash"], password):
-            return False, "Invalid password"
-        totp = pyotp.TOTP(user["otp_secret"])
-        if not totp.verify(otp, valid_window=1):
-            return False, "Invalid OTP"
-        self.token = secrets.token_hex(16)
+        try:
+            resp_pw = requests.post(
+                f"{API_BASE_URL}/login/password",
+                json={"username": username, "password": password},
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp_pw.status_code != 200:
+            try:
+                detail = resp_pw.json().get("detail", resp_pw.text)
+            except Exception:
+                detail = resp_pw.text
+            return False, detail
+        try:
+            resp_otp = requests.post(
+                f"{API_BASE_URL}/login/otp",
+                json={"username": username, "password": password, "otp": otp},
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp_otp.status_code != 200:
+            try:
+                detail = resp_otp.json().get("detail", resp_otp.text)
+            except Exception:
+                detail = resp_otp.text
+            return False, detail
+        data = resp_otp.json()
+        self.token = data["access_token"]
         self.current_user = username
         return True, self.token
 
