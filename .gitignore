@@ -17,7 +17,6 @@ venv/
 Thumbs.db
 
 # Local runtime data (project-specific)
-server/secure_im.db
 client/.device_id
 client/.known_contact_keys.json
 client/.identity/
