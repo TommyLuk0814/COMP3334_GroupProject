@@ -310,6 +310,74 @@ class IMClientAPI:
             return False, detail
         return True, resp.json().get("friends", [])
 
+    def remove_friend(self, identifier):
+        if not self.token:
+            return False, "Not authenticated"
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/friends/remove",
+                json={"identifier": identifier.strip()},
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                body = resp.json()
+                detail = body.get("detail", resp.text)
+                if isinstance(detail, list):
+                    detail = str(detail)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json()
+
+    def block_user(self, identifier):
+        if not self.token:
+            return False, "Not authenticated"
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/friends/block",
+                json={"identifier": identifier.strip()},
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                body = resp.json()
+                detail = body.get("detail", resp.text)
+                if isinstance(detail, list):
+                    detail = str(detail)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json()
+
+    def block_friend_request(self, request_id):
+        if not self.token:
+            return False, "Not authenticated"
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/friends/requests/{int(request_id)}/block",
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json()
+
     def send_message(self, recipient, ciphertext, nonce, expiry):
         return True
 

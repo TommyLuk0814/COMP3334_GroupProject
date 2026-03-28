@@ -11,13 +11,16 @@ from config import RATE_LIMITS, SESSION_TTL_HOURS
 from database import db
 from rate_limiter import RateLimiter
 from schemas import (
+    FriendBlockResponse,
     FriendEntry,
+    FriendRemoveResponse,
     FriendRequestActionResponse,
     FriendRequestEntry,
     FriendRequestListResponse,
     FriendRequestSendRequest,
     FriendRequestSendResponse,
     FriendsListResponse,
+    FriendTargetRequest,
     LoginOTPRequest,
     LoginOTPResponse,
     LoginPasswordRequest,
@@ -156,6 +159,8 @@ def send_friend_request(
         )
     if err == "duplicate_pending":
         raise HTTPException(status_code=400, detail="Friend request already sent")
+    if err == "blocked":
+        raise HTTPException(status_code=403, detail="You cannot interact with this user (blocked)")
     return FriendRequestSendResponse(id=rid, to_username=target, status=status)
 
 
@@ -257,6 +262,60 @@ def list_friends(session: Dict[str, str] = Depends(get_current_session)):
     )
 
 
+@app.post("/friends/remove", response_model=FriendRemoveResponse)
+def remove_friend(
+    req: FriendTargetRequest,
+    request: Request,
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    ip = client_ip(request)
+    rate_limiter.check("friend_action", f"{ip}:{session['username']}", *RATE_LIMITS["friend_action"])
+    target = resolve_friend_target_identifier(req.identifier)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    result = db.remove_friendship(session["username"], target)
+    if result == "self":
+        raise HTTPException(status_code=400, detail="Cannot remove yourself")
+    if result == "not_friends":
+        raise HTTPException(status_code=400, detail="Not friends with this user")
+    return FriendRemoveResponse(username=target)
+
+
+@app.post("/friends/block", response_model=FriendBlockResponse)
+def block_friend_user(
+    req: FriendTargetRequest,
+    request: Request,
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    ip = client_ip(request)
+    rate_limiter.check("friend_action", f"{ip}:{session['username']}", *RATE_LIMITS["friend_action"])
+    target = resolve_friend_target_identifier(req.identifier)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    result = db.block_user(session["username"], target)
+    if result == "self":
+        raise HTTPException(status_code=400, detail="Cannot block yourself")
+    return FriendBlockResponse(blocked_username=target)
+
+
+@app.post("/friends/requests/{request_id}/block", response_model=FriendBlockResponse)
+def block_friend_request(
+    request_id: int,
+    request: Request,
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    ip = client_ip(request)
+    rate_limiter.check("friend_action", f"{ip}:{session['username']}", *RATE_LIMITS["friend_action"])
+    result, blocked_name = db.block_from_friend_request(request_id, session["username"])
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Request not found")
+    if result == "forbidden":
+        raise HTTPException(status_code=403, detail="Not allowed to block for this request")
+    if result == "not_pending":
+        raise HTTPException(status_code=400, detail="Request is not pending")
+    return FriendBlockResponse(blocked_username=blocked_name or "")
+
+
 @app.post("/keys", response_model=UploadKeyResponse)
 def upload_public_key(req: UploadKeyRequest, session: Dict[str, str] = Depends(get_current_session)):
     fingerprint = fingerprint_for_pem(req.public_key_pem)
@@ -275,8 +334,9 @@ def upload_public_key(req: UploadKeyRequest, session: Dict[str, str] = Depends(g
 
 @app.get("/keys/{username}", response_model=PublicKeysResponse)
 def get_public_keys(username: str, session: Dict[str, str] = Depends(get_current_session)):
-    _ = session
     normalized_username = normalize_username(username)
+    if db.pair_has_block(session["username"], normalized_username):
+        raise HTTPException(status_code=403, detail="You cannot access this user's keys (blocked)")
     rows = db.list_identity_keys(normalized_username)
     keys = [
         PublicKeyEntry(
@@ -292,8 +352,9 @@ def get_public_keys(username: str, session: Dict[str, str] = Depends(get_current
 
 @app.get("/keys/{username}/fingerprint")
 def get_public_key_fingerprints(username: str, session: Dict[str, str] = Depends(get_current_session)):
-    _ = session
     normalized_username = normalize_username(username)
+    if db.pair_has_block(session["username"], normalized_username):
+        raise HTTPException(status_code=403, detail="You cannot access this user's keys (blocked)")
     rows = db.list_identity_keys(normalized_username)
     return {
         "username": normalized_username,

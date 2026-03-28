@@ -371,11 +371,47 @@ class HomePage(tk.Frame):
         else:
             messagebox.showerror("Error", str(res))
 
+    def _selected_friend_username(self):
+        sel = self.friend_listbox.curselection()
+        if not sel:
+            messagebox.showwarning("Select friend", "Choose someone in the friend list first.")
+            return None
+        idx = int(sel[0])
+        return self.friend_listbox.get(idx).strip() or None
+
     def remove_friend(self):
-        messagebox.showinfo("Info", "Remove Friend feature is not implemented yet")
+        peer = self._selected_friend_username()
+        if not peer:
+            return
+        ok, res = self.controller.api.remove_friend(peer)
+        if ok:
+            messagebox.showinfo("Removed", f"No longer friends with {res.get('username', peer)}.")
+            self.refresh_social()
+        else:
+            messagebox.showerror("Error", str(res))
 
     def block_friend(self):
-        messagebox.showinfo("Info", "Block Friend feature is not implemented yet")
+        peer = None
+        sel = self.friend_listbox.curselection()
+        if sel:
+            peer = self.friend_listbox.get(int(sel[0])).strip() or None
+        if not peer:
+            entered = simpledialog.askstring(
+                "Block user",
+                "Enter username or contact code:",
+                parent=self,
+            )
+            if not entered or not entered.strip():
+                return
+            peer = entered.strip()
+        if not messagebox.askyesno("Block user", f"Block {peer}? They will not be able to send requests or messages to you."):
+            return
+        ok, res = self.controller.api.block_user(peer)
+        if ok:
+            messagebox.showinfo("Blocked", f"Blocked {res.get('blocked_username', peer)}.")
+            self.refresh_social()
+        else:
+            messagebox.showerror("Error", str(res))
 
     def _selected_incoming_request_id(self):
         sel = self.request_listbox.curselection()
@@ -430,7 +466,17 @@ class HomePage(tk.Frame):
             messagebox.showerror("Error", str(err))
 
     def block_request(self):
-        messagebox.showinfo("Info", "Block Request feature is not implemented yet")
+        rid = self._selected_incoming_request_id()
+        if rid is None:
+            return
+        if not messagebox.askyesno("Block user", "Block this person? The request will be removed."):
+            return
+        ok, res = self.controller.api.block_friend_request(rid)
+        if ok:
+            messagebox.showinfo("Blocked", f"Blocked {res.get('blocked_username', '')}.")
+            self.refresh_social()
+        else:
+            messagebox.showerror("Error", str(res))
 
     def send_message(self):
         text = self.chat_input.get().strip()

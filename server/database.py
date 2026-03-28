@@ -57,6 +57,7 @@ class DB:
                 """
             )
             self._ensure_friend_tables_schema(cur)
+            self._ensure_blocks_table(cur)
             self._ensure_contact_code_column(cur)
             self.conn.commit()
 
@@ -109,6 +110,111 @@ class DB:
 
         cur.execute("CREATE INDEX IF NOT EXISTS idx_friend_requests_to ON friend_requests(to_user, status)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_friend_requests_from ON friend_requests(from_user, status)")
+
+    def _ensure_blocks_table(self, cur: sqlite3.Cursor) -> None:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS blocks (
+                blocker TEXT NOT NULL,
+                blocked TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (blocker, blocked),
+                CHECK (blocker != blocked),
+                FOREIGN KEY(blocker) REFERENCES users(username),
+                FOREIGN KEY(blocked) REFERENCES users(username)
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_blocks_blocked ON blocks(blocked)")
+
+    def _pair_has_block_unlocked(self, u1: str, u2: str) -> bool:
+        if u1 == u2:
+            return False
+        row = self.conn.execute(
+            """
+            SELECT 1 FROM blocks
+            WHERE (blocker = ? AND blocked = ?) OR (blocker = ? AND blocked = ?)
+            LIMIT 1
+            """,
+            (u1, u2, u2, u1),
+        ).fetchone()
+        return row is not None
+
+    def pair_has_block(self, u1: str, u2: str) -> bool:
+        with self.lock:
+            return self._pair_has_block_unlocked(u1, u2)
+
+    def _delete_all_friend_requests_between_unlocked(self, a: str, b: str) -> None:
+        """Remove request rows in both directions so stale 'accepted' rows cannot block re-adding."""
+        self.conn.execute(
+            """
+            DELETE FROM friend_requests
+            WHERE (from_user = ? AND to_user = ?) OR (from_user = ? AND to_user = ?)
+            """,
+            (a, b, b, a),
+        )
+
+    def remove_friendship(self, acting_user: str, peer: str) -> str:
+        if acting_user == peer:
+            return "self"
+        a, b = self._friendship_pair(acting_user, peer)
+        with self.lock:
+            cur = self.conn.execute(
+                "DELETE FROM friendships WHERE user_a = ? AND user_b = ?",
+                (a, b),
+            )
+            if cur.rowcount == 0:
+                return "not_friends"
+            self._delete_all_friend_requests_between_unlocked(acting_user, peer)
+            self.conn.commit()
+            return "ok"
+
+    def _block_user_unlocked(self, blocker: str, blocked: str, now: str) -> str:
+        exists = self.conn.execute(
+            "SELECT 1 FROM blocks WHERE blocker = ? AND blocked = ?",
+            (blocker, blocked),
+        ).fetchone()
+        if exists:
+            return "ok"
+        a, b = self._friendship_pair(blocker, blocked)
+        self.conn.execute(
+            "DELETE FROM friendships WHERE user_a = ? AND user_b = ?",
+            (a, b),
+        )
+        self._delete_all_friend_requests_between_unlocked(blocker, blocked)
+        self.conn.execute(
+            """
+            INSERT INTO blocks(blocker, blocked, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (blocker, blocked, now),
+        )
+        self.conn.commit()
+        return "ok"
+
+    def block_user(self, blocker: str, blocked: str) -> str:
+        if blocker == blocked:
+            return "self"
+        now = datetime.utcnow().isoformat()
+        with self.lock:
+            return self._block_user_unlocked(blocker, blocked, now)
+
+    def block_from_friend_request(self, request_id: int, acting_user: str) -> Tuple[str, Optional[str]]:
+        now = datetime.utcnow().isoformat()
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT id, from_user, to_user, status FROM friend_requests WHERE id = ?",
+                (request_id,),
+            ).fetchone()
+            if not row:
+                return "not_found", None
+            if row["to_user"] != acting_user:
+                return "forbidden", None
+            if row["status"] != "pending":
+                return "not_pending", None
+            from_user = str(row["from_user"])
+            self._block_user_unlocked(acting_user, from_user, now)
+            return "ok", from_user
 
     def _ensure_contact_code_column(self, cur: sqlite3.Cursor) -> None:
         cur.execute("PRAGMA table_info(users)")
@@ -208,6 +314,9 @@ class DB:
         now = datetime.utcnow().isoformat()
 
         with self.lock:
+            if self._pair_has_block_unlocked(from_user, to_user):
+                return -1, "", "blocked"
+
             if self._are_friends_unlocked(from_user, to_user):
                 return -1, "", "already_friends"
 
@@ -250,24 +359,34 @@ class DB:
         with self.lock:
             return self.conn.execute(
                 """
-                SELECT id, from_user, created_at
-                FROM friend_requests
-                WHERE to_user = ? AND status = 'pending'
-                ORDER BY created_at DESC
+                SELECT fr.id, fr.from_user, fr.created_at
+                FROM friend_requests fr
+                WHERE fr.to_user = ? AND fr.status = 'pending'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM blocks b
+                    WHERE (b.blocker = ? AND b.blocked = fr.from_user)
+                       OR (b.blocker = fr.from_user AND b.blocked = ?)
+                  )
+                ORDER BY fr.created_at DESC
                 """,
-                (username,),
+                (username, username, username),
             ).fetchall()
 
     def list_outgoing_friend_requests(self, username: str) -> List[sqlite3.Row]:
         with self.lock:
             return self.conn.execute(
                 """
-                SELECT id, to_user, created_at
-                FROM friend_requests
-                WHERE from_user = ? AND status = 'pending'
-                ORDER BY created_at DESC
+                SELECT fr.id, fr.to_user, fr.created_at
+                FROM friend_requests fr
+                WHERE fr.from_user = ? AND fr.status = 'pending'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM blocks b
+                    WHERE (b.blocker = ? AND b.blocked = fr.to_user)
+                       OR (b.blocker = fr.to_user AND b.blocked = ?)
+                  )
+                ORDER BY fr.created_at DESC
                 """,
-                (username,),
+                (username, username, username),
             ).fetchall()
 
     def get_friend_request_by_id(self, request_id: int) -> Optional[sqlite3.Row]:

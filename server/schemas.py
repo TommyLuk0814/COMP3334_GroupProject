@@ -100,3 +100,15 @@ class FriendEntry(BaseModel):
 
 class FriendsListResponse(BaseModel):
     friends: List[FriendEntry]
+
+
+class FriendTargetRequest(BaseModel):
+    identifier: str = Field(min_length=1, max_length=128)
+
+
+class FriendRemoveResponse(BaseModel):
+    username: str
+
+
+class FriendBlockResponse(BaseModel):
+    blocked_username: str
