@@ -334,6 +334,22 @@ class DB:
             self.conn.commit()
             return "ok"
 
+    def cancel_friend_request(self, request_id: int, acting_user: str) -> str:
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT id, from_user, status FROM friend_requests WHERE id = ?",
+                (request_id,),
+            ).fetchone()
+            if not row:
+                return "not_found"
+            if row["from_user"] != acting_user:
+                return "forbidden"
+            if row["status"] != "pending":
+                return "not_pending"
+            self.conn.execute("DELETE FROM friend_requests WHERE id = ?", (request_id,))
+            self.conn.commit()
+            return "ok"
+
     def list_friends(self, username: str) -> List[sqlite3.Row]:
         with self.lock:
             return self.conn.execute(

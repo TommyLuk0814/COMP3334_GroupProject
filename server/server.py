@@ -225,6 +225,24 @@ def decline_friend_request(
     return FriendRequestActionResponse(id=request_id, status="declined")
 
 
+@app.post("/friends/requests/{request_id}/cancel", response_model=FriendRequestActionResponse)
+def cancel_friend_request(
+    request_id: int,
+    request: Request,
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    ip = client_ip(request)
+    rate_limiter.check("friend_action", f"{ip}:{session['username']}", *RATE_LIMITS["friend_action"])
+    result = db.cancel_friend_request(request_id, session["username"])
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Request not found")
+    if result == "forbidden":
+        raise HTTPException(status_code=403, detail="Not allowed to cancel this request")
+    if result == "not_pending":
+        raise HTTPException(status_code=400, detail="Request is not pending")
+    return FriendRequestActionResponse(id=request_id, status="cancelled")
+
+
 @app.get("/friends", response_model=FriendsListResponse)
 def list_friends(session: Dict[str, str] = Depends(get_current_session)):
     rows = db.list_friends(session["username"])

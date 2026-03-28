@@ -254,6 +254,7 @@ class HomePage(tk.Frame):
         self.controller = controller
         self.current_user = None
         self._incoming_request_ids = []
+        self._outgoing_request_ids = []
 
         root = ttk.Frame(self, padding=10)
         root.pack(fill="both", expand=True)
@@ -284,7 +285,10 @@ class HomePage(tk.Frame):
 
         ttk.Label(left_panel, text="Sent requests (pending)", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 4))
         self.outgoing_listbox = tk.Listbox(left_panel, height=3)
-        self.outgoing_listbox.pack(fill="x", pady=(0, 10))
+        self.outgoing_listbox.pack(fill="x", pady=(0, 4))
+        ttk.Button(left_panel, text="Cancel selected sent request", command=self.cancel_outgoing_request).pack(
+            anchor="w", pady=(0, 10)
+        )
 
         friend_action_row = ttk.Frame(left_panel)
         friend_action_row.pack(fill="x", pady=(0, 12))
@@ -333,9 +337,11 @@ class HomePage(tk.Frame):
                 self.friend_listbox.insert(tk.END, f.get("username", ""))
 
         self.outgoing_listbox.delete(0, tk.END)
+        self._outgoing_request_ids.clear()
         ok_o, outgoing = api.list_outgoing_friend_requests()
         if ok_o:
             for r in outgoing:
+                self._outgoing_request_ids.append(r.get("id"))
                 self.outgoing_listbox.insert(tk.END, r.get("counterparty_username", ""))
 
         self.request_listbox.delete(0, tk.END)
@@ -397,6 +403,27 @@ class HomePage(tk.Frame):
         if rid is None:
             return
         ok, err = self.controller.api.decline_friend_request(rid)
+        if ok:
+            self.refresh_social()
+        else:
+            messagebox.showerror("Error", str(err))
+
+    def _selected_outgoing_request_id(self):
+        sel = self.outgoing_listbox.curselection()
+        if not sel:
+            messagebox.showwarning("Select request", "Choose a sent request to cancel.")
+            return None
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self._outgoing_request_ids):
+            messagebox.showerror("Error", "Invalid selection.")
+            return None
+        return self._outgoing_request_ids[idx]
+
+    def cancel_outgoing_request(self):
+        rid = self._selected_outgoing_request_id()
+        if rid is None:
+            return
+        ok, err = self.controller.api.cancel_friend_request(rid)
         if ok:
             self.refresh_social()
         else:
