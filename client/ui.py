@@ -244,10 +244,53 @@ class HomePage(tk.Frame):
         self.controller = controller
         self.current_user = None
 
-        ttk.Label(self, text="Welcome to Secure IM", font=("Arial", 20)).pack(pady=50)
-        self.user_label = ttk.Label(self, text="", font=("Arial", 12))
-        self.user_label.pack(pady=10)
-        ttk.Button(self, text="Logout", command=self.logout).pack(pady=20)
+        root = ttk.Frame(self, padding=10)
+        root.pack(fill="both", expand=True)
+
+        top_bar = ttk.Frame(root)
+        top_bar.pack(fill="x", pady=(0, 8))
+
+        self.user_label = ttk.Label(top_bar, text="", font=("Arial", 12))
+        self.user_label.pack(side="left")
+        ttk.Button(top_bar, text="Logout", command=self.logout).pack(side="right")
+
+        body = ttk.Panedwindow(root, orient="horizontal")
+        body.pack(fill="both", expand=True)
+
+        left_panel = ttk.Frame(body, padding=(0, 0, 10, 0))
+        right_panel = ttk.Frame(body)
+        body.add(left_panel, weight=1)
+        body.add(right_panel, weight=3)
+
+        ttk.Label(left_panel, text="Friend List", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 6))
+        self.friend_listbox = tk.Listbox(left_panel, height=10)
+        self.friend_listbox.pack(fill="x", pady=(0, 8))
+
+        friend_action_row = ttk.Frame(left_panel)
+        friend_action_row.pack(fill="x", pady=(0, 12))
+        ttk.Button(friend_action_row, text="Add Friend", command=self.add_friend).pack(side="left", padx=(0, 6))
+        ttk.Button(friend_action_row, text="Remove Friend", command=self.remove_friend).pack(side="left", padx=(0, 6))
+        ttk.Button(friend_action_row, text="Block", command=self.block_friend).pack(side="left")
+
+        ttk.Label(left_panel, text="Request List", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 6))
+        self.request_listbox = tk.Listbox(left_panel, height=8)
+        self.request_listbox.pack(fill="x", pady=(0, 8))
+
+        request_action_row = ttk.Frame(left_panel)
+        request_action_row.pack(fill="x")
+        ttk.Button(request_action_row, text="Accept", command=self.accept_request).pack(side="left", padx=(0, 6))
+        ttk.Button(request_action_row, text="Decline", command=self.decline_request).pack(side="left", padx=(0, 6))
+        ttk.Button(request_action_row, text="Block", command=self.block_request).pack(side="left")
+
+        ttk.Label(right_panel, text="Chat", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 6))
+        self.chat_text = tk.Text(right_panel, state="disabled", wrap="word")
+        self.chat_text.pack(fill="both", expand=True)
+
+        chat_input_row = ttk.Frame(right_panel)
+        chat_input_row.pack(fill="x", pady=(8, 0))
+        self.chat_input = ttk.Entry(chat_input_row)
+        self.chat_input.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ttk.Button(chat_input_row, text="Send", command=self.send_message).pack(side="right")
 
     def set_user(self, username):
         self.current_user = username
@@ -257,5 +300,33 @@ class HomePage(tk.Frame):
         self.controller.api.token = None
         self.controller.show_page("LoginPage")
 
+    def add_friend(self):
+        messagebox.showinfo("Info", "Add Friend feature is not implemented yet")
+
+    def remove_friend(self):
+        messagebox.showinfo("Info", "Remove Friend feature is not implemented yet")
+
+    def block_friend(self):
+        messagebox.showinfo("Info", "Block Friend feature is not implemented yet")
+
+    def accept_request(self):
+        messagebox.showinfo("Info", "Accept Request feature is not implemented yet")
+
+    def decline_request(self):
+        messagebox.showinfo("Info", "Decline Request feature is not implemented yet")
+
+    def block_request(self):
+        messagebox.showinfo("Info", "Block Request feature is not implemented yet")
+
+    def send_message(self):
+        text = self.chat_input.get().strip()
+        if not text:
+            return
+        self.chat_text.configure(state="normal")
+        self.chat_text.insert(tk.END, f"Me: {text}\n")
+        self.chat_text.see(tk.END)
+        self.chat_text.configure(state="disabled")
+        self.chat_input.delete(0, tk.END)
+
     def clear(self):
-        pass
+        self.chat_input.delete(0, tk.END)
