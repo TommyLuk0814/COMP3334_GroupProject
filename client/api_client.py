@@ -378,6 +378,98 @@ class IMClientAPI:
             return False, detail
         return True, resp.json()
 
+    def init_session_handshake(self, target_username, target_device_id, initiator_ephemeral_pub, initiator_signature):
+        if not self.token:
+            return False, "Not authenticated"
+        payload = {
+            "target_username": target_username,
+            "target_device_id": target_device_id or "",
+            "initiator_ephemeral_pub": initiator_ephemeral_pub,
+            "initiator_signature": initiator_signature,
+        }
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/sessions/init",
+                json=payload,
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json()
+
+    def list_pending_session_handshakes(self):
+        if not self.token:
+            return False, "Not authenticated"
+        try:
+            resp = requests.get(
+                f"{API_BASE_URL}/sessions/pending",
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json().get("handshakes", [])
+
+    def respond_session_handshake(self, handshake_id, responder_ephemeral_pub, responder_signature):
+        if not self.token:
+            return False, "Not authenticated"
+        payload = {
+            "responder_ephemeral_pub": responder_ephemeral_pub,
+            "responder_signature": responder_signature,
+        }
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/sessions/{int(handshake_id)}/respond",
+                json=payload,
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json()
+
+    def list_responded_session_handshakes(self):
+        if not self.token:
+            return False, "Not authenticated"
+        try:
+            resp = requests.get(
+                f"{API_BASE_URL}/sessions/responded",
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json().get("handshakes", [])
+
     def send_message(self, recipient, ciphertext, nonce, expiry):
         return True
 

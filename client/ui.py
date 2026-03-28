@@ -268,6 +268,7 @@ class HomePage(tk.Frame):
         self.user_label.pack(anchor="w")
         self.contact_code_label = ttk.Label(title_col, text="", font=("Arial", 10))
         self.contact_code_label.pack(anchor="w")
+        ttk.Button(top_bar, text="Sync Sessions", command=self.sync_sessions).pack(side="right", padx=(0, 8))
         ttk.Button(top_bar, text="Refresh", command=self.refresh_social).pack(side="right", padx=(0, 8))
         ttk.Button(top_bar, text="Logout", command=self.logout).pack(side="right")
 
@@ -293,6 +294,7 @@ class HomePage(tk.Frame):
         friend_action_row = ttk.Frame(left_panel)
         friend_action_row.pack(fill="x", pady=(0, 12))
         ttk.Button(friend_action_row, text="Add Friend", command=self.add_friend).pack(side="left", padx=(0, 6))
+        ttk.Button(friend_action_row, text="Establish Session", command=self.establish_session).pack(side="left", padx=(0, 6))
         ttk.Button(friend_action_row, text="Remove Friend", command=self.remove_friend).pack(side="left", padx=(0, 6))
         ttk.Button(friend_action_row, text="Block", command=self.block_friend).pack(side="left")
 
@@ -477,6 +479,120 @@ class HomePage(tk.Frame):
             self.refresh_social()
         else:
             messagebox.showerror("Error", str(res))
+
+    def _append_system_message(self, text):
+        self.chat_text.configure(state="normal")
+        self.chat_text.insert(tk.END, f"[System] {text}\n")
+        self.chat_text.see(tk.END)
+        self.chat_text.configure(state="disabled")
+
+    def _find_identity_key_for_device(self, username, device_id):
+        keys = self.controller.api.get_public_key(username)
+        for key_entry in keys:
+            if key_entry.get("device_id") == device_id:
+                return key_entry.get("public_key_pem", "")
+        return ""
+
+    def establish_session(self):
+        peer = self._selected_friend_username()
+        if not peer:
+            return
+        if self.controller.crypto.has_session_with(peer):
+            messagebox.showinfo("Session", f"Session with {peer} already exists.")
+            return
+
+        keys = self.controller.api.get_public_key(peer)
+        if not keys:
+            messagebox.showerror("Error", "Peer has no published identity key/device.")
+            return
+
+        target_device_id = keys[0].get("device_id", "")
+        if not target_device_id:
+            messagebox.showerror("Error", "Cannot determine target device.")
+            return
+
+        try:
+            eph_pub, init_sig, eph_priv = self.controller.crypto.create_initiator_handshake(
+                initiator_username=self.current_user,
+                initiator_device_id=self.controller.api.device_id,
+                recipient_username=peer,
+                recipient_device_id=target_device_id,
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to build handshake: {e}")
+            return
+
+        ok, result = self.controller.api.init_session_handshake(peer, target_device_id, eph_pub, init_sig)
+        if not ok:
+            messagebox.showerror("Error", str(result))
+            return
+
+        handshake_id = result.get("handshake_id")
+        if handshake_id is None:
+            messagebox.showerror("Error", "Handshake response missing id")
+            return
+
+        self.controller.crypto.remember_initiator_private_key(
+            int(handshake_id),
+            peer,
+            target_device_id,
+            eph_priv,
+        )
+        self._append_system_message(f"Session handshake sent to {peer} ({target_device_id}).")
+
+    def sync_sessions(self):
+        api = self.controller.api
+        crypto = self.controller.crypto
+
+        ok_pending, pending_result = api.list_pending_session_handshakes()
+        if ok_pending:
+            for handshake in pending_result:
+                initiator = handshake.get("initiator_username", "")
+                initiator_device = handshake.get("initiator_device_id", "")
+                initiator_pem = self._find_identity_key_for_device(initiator, initiator_device)
+                if not initiator_pem:
+                    continue
+                try:
+                    responder_pub, responder_sig, _ = crypto.handle_incoming_handshake(
+                        handshake=handshake,
+                        my_username=self.current_user,
+                        my_device_id=api.device_id,
+                        initiator_identity_key_pem=initiator_pem,
+                    )
+                except Exception as e:
+                    self._append_system_message(f"Ignored invalid incoming handshake from {initiator}: {e}")
+                    continue
+
+                ok_resp, resp_result = api.respond_session_handshake(
+                    handshake.get("id"),
+                    responder_pub,
+                    responder_sig,
+                )
+                if ok_resp:
+                    self._append_system_message(f"Session established with {initiator}.")
+                else:
+                    self._append_system_message(f"Failed to respond handshake for {initiator}: {resp_result}")
+
+        ok_resp_list, responded_result = api.list_responded_session_handshakes()
+        if ok_resp_list:
+            for handshake in responded_result:
+                recipient = handshake.get("recipient_username", "")
+                recipient_device = handshake.get("recipient_device_id", "")
+                recipient_pem = self._find_identity_key_for_device(recipient, recipient_device)
+                if not recipient_pem:
+                    continue
+                try:
+                    shared_key = crypto.finalize_initiator_handshake(
+                        handshake=handshake,
+                        my_username=self.current_user,
+                        my_device_id=api.device_id,
+                        recipient_identity_key_pem=recipient_pem,
+                    )
+                except Exception as e:
+                    self._append_system_message(f"Failed to finalize handshake with {recipient}: {e}")
+                    continue
+                if shared_key:
+                    self._append_system_message(f"Session established with {recipient}.")
 
     def send_message(self):
         text = self.chat_input.get().strip()

@@ -17,7 +17,7 @@
 - [x] R4 Per-device identity keypair
 - [ ] R5 Fingerprint / verification UI (partial: backend fingerprint/public key endpoints exist, full client fingerprint/verified UX pending)
 - [ ] R6 Key change detection (partial: key change detection helper exists, full warning/block UI flow pending)
-- [ ] R7 Secure session establishment
+- [x] R7 Secure session establishment (implemented as signed X25519 ephemeral handshake over authenticated identity keys)
 - [ ] R8 Message encryption and authentication
 - [ ] R9 Replay protection / de-duplication
 - [ ] R10 TTL / expiration policy

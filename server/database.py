@@ -59,7 +59,36 @@ class DB:
             self._ensure_friend_tables_schema(cur)
             self._ensure_blocks_table(cur)
             self._ensure_contact_code_column(cur)
+            self._ensure_session_handshakes_table(cur)
             self.conn.commit()
+
+    def _ensure_session_handshakes_table(self, cur: sqlite3.Cursor) -> None:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_handshakes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                initiator_user TEXT NOT NULL,
+                initiator_device_id TEXT NOT NULL,
+                recipient_user TEXT NOT NULL,
+                recipient_device_id TEXT,
+                initiator_ephemeral_pub TEXT NOT NULL,
+                initiator_signature TEXT NOT NULL,
+                responder_ephemeral_pub TEXT,
+                responder_signature TEXT,
+                status TEXT NOT NULL CHECK(status IN ('pending', 'responded')),
+                created_at TEXT NOT NULL,
+                responded_at TEXT,
+                FOREIGN KEY(initiator_user) REFERENCES users(username),
+                FOREIGN KEY(recipient_user) REFERENCES users(username)
+            )
+            """
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_handshakes_recipient ON session_handshakes(recipient_user, status)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_handshakes_initiator ON session_handshakes(initiator_user, status)"
+        )
 
     def _ensure_friend_tables_schema(self, cur: sqlite3.Cursor) -> None:
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='friend_requests'")
@@ -481,6 +510,138 @@ class DB:
                 ORDER BY peer
                 """,
                 (username, username, username),
+            ).fetchall()
+
+    def create_session_handshake(
+        self,
+        initiator_user: str,
+        initiator_device_id: str,
+        recipient_user: str,
+        recipient_device_id: Optional[str],
+        initiator_ephemeral_pub: str,
+        initiator_signature: str,
+    ) -> int:
+        now = datetime.utcnow().isoformat()
+        with self.lock:
+            self.conn.execute(
+                """
+                INSERT INTO session_handshakes(
+                    initiator_user,
+                    initiator_device_id,
+                    recipient_user,
+                    recipient_device_id,
+                    initiator_ephemeral_pub,
+                    initiator_signature,
+                    status,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+                """,
+                (
+                    initiator_user,
+                    initiator_device_id,
+                    recipient_user,
+                    recipient_device_id,
+                    initiator_ephemeral_pub,
+                    initiator_signature,
+                    now,
+                ),
+            )
+            hid = int(self.conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+            self.conn.commit()
+            return hid
+
+    def list_pending_session_handshakes(self, recipient_user: str, recipient_device_id: str) -> List[sqlite3.Row]:
+        with self.lock:
+            return self.conn.execute(
+                """
+                SELECT
+                    id,
+                    initiator_user,
+                    initiator_device_id,
+                    recipient_user,
+                    recipient_device_id,
+                    initiator_ephemeral_pub,
+                    initiator_signature,
+                    created_at
+                FROM session_handshakes
+                WHERE recipient_user = ?
+                  AND status = 'pending'
+                  AND (recipient_device_id IS NULL OR recipient_device_id = ?)
+                ORDER BY created_at ASC
+                """,
+                (recipient_user, recipient_device_id),
+            ).fetchall()
+
+    def respond_session_handshake(
+        self,
+        handshake_id: int,
+        acting_user: str,
+        acting_device_id: str,
+        responder_ephemeral_pub: str,
+        responder_signature: str,
+    ) -> str:
+        now = datetime.utcnow().isoformat()
+        with self.lock:
+            row = self.conn.execute(
+                """
+                SELECT id, recipient_user, recipient_device_id, status
+                FROM session_handshakes
+                WHERE id = ?
+                """,
+                (handshake_id,),
+            ).fetchone()
+            if not row:
+                return "not_found"
+            if row["recipient_user"] != acting_user:
+                return "forbidden"
+            if row["recipient_device_id"] and row["recipient_device_id"] != acting_device_id:
+                return "forbidden"
+            if row["status"] != "pending":
+                return "not_pending"
+
+            self.conn.execute(
+                """
+                UPDATE session_handshakes
+                SET responder_ephemeral_pub = ?,
+                    responder_signature = ?,
+                    status = 'responded',
+                    responded_at = ?,
+                    recipient_device_id = COALESCE(recipient_device_id, ?)
+                WHERE id = ?
+                """,
+                (responder_ephemeral_pub, responder_signature, now, acting_device_id, handshake_id),
+            )
+            self.conn.commit()
+            return "ok"
+
+    def list_responded_session_handshakes_for_initiator(
+        self,
+        initiator_user: str,
+        initiator_device_id: str,
+    ) -> List[sqlite3.Row]:
+        with self.lock:
+            return self.conn.execute(
+                """
+                SELECT
+                    id,
+                    initiator_user,
+                    initiator_device_id,
+                    recipient_user,
+                    recipient_device_id,
+                    initiator_ephemeral_pub,
+                    initiator_signature,
+                    responder_ephemeral_pub,
+                    responder_signature,
+                    created_at,
+                    responded_at
+                FROM session_handshakes
+                WHERE initiator_user = ?
+                  AND initiator_device_id = ?
+                  AND status = 'responded'
+                ORDER BY responded_at DESC
+                """,
+                (initiator_user, initiator_device_id),
             ).fetchall()
 
     def upsert_session(self, token: str, username: str, device_id: str, expires_at: datetime) -> None:

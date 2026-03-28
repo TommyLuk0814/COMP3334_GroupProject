@@ -31,6 +31,14 @@ from schemas import (
     PublicKeysResponse,
     RegisterRequest,
     RegisterResponse,
+    RespondedSessionHandshakeEntry,
+    RespondedSessionHandshakeListResponse,
+    SessionInitRequest,
+    SessionInitResponse,
+    SessionRespondRequest,
+    SessionRespondResponse,
+    PendingSessionHandshakeEntry,
+    PendingSessionHandshakeListResponse,
     UploadKeyRequest,
     UploadKeyResponse,
 )
@@ -121,6 +129,18 @@ def resolve_friend_target_identifier(identifier: str) -> Optional[str]:
     if by_code:
         return str(by_code["username"])
     return None
+
+
+def resolve_target_device_id(username: str, preferred_device_id: str) -> Optional[str]:
+    rows = db.list_identity_keys(username)
+    if not rows:
+        return None
+    if preferred_device_id:
+        for row in rows:
+            if row["device_id"] == preferred_device_id:
+                return str(row["device_id"])
+        return None
+    return str(rows[0]["device_id"])
 
 
 @app.get("/me", response_model=MeResponse)
@@ -314,6 +334,112 @@ def block_friend_request(
     if result == "not_pending":
         raise HTTPException(status_code=400, detail="Request is not pending")
     return FriendBlockResponse(blocked_username=blocked_name or "")
+
+
+@app.post("/sessions/init", response_model=SessionInitResponse)
+def init_session_handshake(
+    req: SessionInitRequest,
+    request: Request,
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    ip = client_ip(request)
+    rate_limiter.check("friend_action", f"{ip}:{session['username']}", *RATE_LIMITS["friend_action"])
+
+    target_username = normalize_username(req.target_username)
+    if target_username == session["username"]:
+        raise HTTPException(status_code=400, detail="Cannot create session with yourself")
+    if not db.get_user(target_username):
+        raise HTTPException(status_code=404, detail="Target user not found")
+    if db.pair_has_block(session["username"], target_username):
+        raise HTTPException(status_code=403, detail="Cannot create session with blocked user")
+    if not db.are_friends(session["username"], target_username):
+        raise HTTPException(status_code=403, detail="You can only create sessions with friends")
+
+    target_device_id = resolve_target_device_id(target_username, req.target_device_id.strip())
+    if not target_device_id:
+        raise HTTPException(status_code=404, detail="Target device key not found")
+
+    handshake_id = db.create_session_handshake(
+        initiator_user=session["username"],
+        initiator_device_id=session["device_id"],
+        recipient_user=target_username,
+        recipient_device_id=target_device_id,
+        initiator_ephemeral_pub=req.initiator_ephemeral_pub,
+        initiator_signature=req.initiator_signature,
+    )
+    return SessionInitResponse(
+        handshake_id=handshake_id,
+        recipient_username=target_username,
+        recipient_device_id=target_device_id,
+        status="pending",
+    )
+
+
+@app.get("/sessions/pending", response_model=PendingSessionHandshakeListResponse)
+def list_pending_session_handshakes(session: Dict[str, str] = Depends(get_current_session)):
+    rows = db.list_pending_session_handshakes(session["username"], session["device_id"])
+    return PendingSessionHandshakeListResponse(
+        handshakes=[
+            PendingSessionHandshakeEntry(
+                id=int(row["id"]),
+                initiator_username=str(row["initiator_user"]),
+                initiator_device_id=str(row["initiator_device_id"]),
+                recipient_device_id=str(row["recipient_device_id"] or session["device_id"]),
+                initiator_ephemeral_pub=str(row["initiator_ephemeral_pub"]),
+                initiator_signature=str(row["initiator_signature"]),
+                created_at=datetime.fromisoformat(str(row["created_at"])),
+            )
+            for row in rows
+        ]
+    )
+
+
+@app.post("/sessions/{handshake_id}/respond", response_model=SessionRespondResponse)
+def respond_session_handshake(
+    handshake_id: int,
+    req: SessionRespondRequest,
+    request: Request,
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    ip = client_ip(request)
+    rate_limiter.check("friend_action", f"{ip}:{session['username']}", *RATE_LIMITS["friend_action"])
+    result = db.respond_session_handshake(
+        handshake_id=handshake_id,
+        acting_user=session["username"],
+        acting_device_id=session["device_id"],
+        responder_ephemeral_pub=req.responder_ephemeral_pub,
+        responder_signature=req.responder_signature,
+    )
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Handshake not found")
+    if result == "forbidden":
+        raise HTTPException(status_code=403, detail="Not allowed to respond to this handshake")
+    if result == "not_pending":
+        raise HTTPException(status_code=400, detail="Handshake is not pending")
+    return SessionRespondResponse(handshake_id=handshake_id, status="responded")
+
+
+@app.get("/sessions/responded", response_model=RespondedSessionHandshakeListResponse)
+def list_responded_session_handshakes(session: Dict[str, str] = Depends(get_current_session)):
+    rows = db.list_responded_session_handshakes_for_initiator(
+        initiator_user=session["username"],
+        initiator_device_id=session["device_id"],
+    )
+    return RespondedSessionHandshakeListResponse(
+        handshakes=[
+            RespondedSessionHandshakeEntry(
+                id=int(row["id"]),
+                recipient_username=str(row["recipient_user"]),
+                recipient_device_id=str(row["recipient_device_id"]),
+                initiator_ephemeral_pub=str(row["initiator_ephemeral_pub"]),
+                responder_ephemeral_pub=str(row["responder_ephemeral_pub"]),
+                responder_signature=str(row["responder_signature"]),
+                responded_at=datetime.fromisoformat(str(row["responded_at"])),
+            )
+            for row in rows
+            if row["responder_ephemeral_pub"] and row["responder_signature"] and row["responded_at"]
+        ]
+    )
 
 
 @app.post("/keys", response_model=UploadKeyResponse)

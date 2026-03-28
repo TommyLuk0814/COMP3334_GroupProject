@@ -112,3 +112,55 @@ class FriendRemoveResponse(BaseModel):
 
 class FriendBlockResponse(BaseModel):
     blocked_username: str
+
+
+class SessionInitRequest(BaseModel):
+    target_username: str = Field(min_length=1, max_length=128)
+    target_device_id: str = Field(default="", max_length=128)
+    initiator_ephemeral_pub: str = Field(min_length=16, max_length=4096)
+    initiator_signature: str = Field(min_length=16, max_length=4096)
+
+
+class SessionInitResponse(BaseModel):
+    handshake_id: int
+    recipient_username: str
+    recipient_device_id: str
+    status: str
+
+
+class PendingSessionHandshakeEntry(BaseModel):
+    id: int
+    initiator_username: str
+    initiator_device_id: str
+    recipient_device_id: str
+    initiator_ephemeral_pub: str
+    initiator_signature: str
+    created_at: datetime
+
+
+class PendingSessionHandshakeListResponse(BaseModel):
+    handshakes: List[PendingSessionHandshakeEntry]
+
+
+class SessionRespondRequest(BaseModel):
+    responder_ephemeral_pub: str = Field(min_length=16, max_length=4096)
+    responder_signature: str = Field(min_length=16, max_length=4096)
+
+
+class SessionRespondResponse(BaseModel):
+    handshake_id: int
+    status: str
+
+
+class RespondedSessionHandshakeEntry(BaseModel):
+    id: int
+    recipient_username: str
+    recipient_device_id: str
+    initiator_ephemeral_pub: str
+    responder_ephemeral_pub: str
+    responder_signature: str
+    responded_at: datetime
+
+
+class RespondedSessionHandshakeListResponse(BaseModel):
+    handshakes: List[RespondedSessionHandshakeEntry]
