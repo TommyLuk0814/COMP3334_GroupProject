@@ -18,24 +18,38 @@
 - [ ] R5 Fingerprint / verification UI (partial: backend fingerprint/public key endpoints exist, full client fingerprint/verified UX pending)
 - [ ] R6 Key change detection (partial: key change detection helper exists, full warning/block UI flow pending)
 - [x] R7 Secure session establishment (implemented as signed X25519 ephemeral handshake over authenticated identity keys)
-- [ ] R8 Message encryption and authentication
+- [x] R8 Message encryption and authentication
 - [ ] R9 Replay protection / de-duplication
 - [ ] R10 TTL / expiration policy
 - [ ] R11 Client deletion behavior
 - [ ] R12 Server storage behavior (best-effort)
 - [x] R13 Friend request workflow
 - [x] R14 Request lifecycle
-- [ ] R15 Blocking / removing (partial: remove/block implemented for social graph and requests; message-layer ignore pending)
-- [ ] R16 Default anti-spam control (partial: no server message API yet, enforcement in message pipeline pending)
-- [ ] R17 Minimum delivery states
-- [ ] R18 Define "Delivered" semantics
+- [ ] R15 Blocking / removing (partial: requests and new outbound messages are blocked; queued-before-block edge handling pending)
+- [x] R16 Default anti-spam control
+- [ ] R17 Minimum delivery states (partial: server returns sent/delivered states, sender-side delivered status UI is pending)
+- [ ] R18 Define "Delivered" semantics (partial: delivered currently mapped to recipient ACK endpoint)
 - [ ] R19 Metadata disclosure statement
-- [ ] R20 Offline ciphertext queue
+- [x] R20 Offline ciphertext queue
 - [ ] R21 Retention and cleanup
 - [ ] R22 Duplicate/replay robustness
 - [ ] R23 Conversation list
 - [ ] R24 Unread counters
 - [ ] R25 Paging / incremental loading
+
+## Checklist Evidence Map
+- R1-R3: `server/server.py`, `server/security.py`, `server/rate_limiter.py`, `server/database.py`, `client/api_client.py`, `client/ui.py`
+- R4: `client/crypto_manager.py`, `server/server.py` (`/keys`), `server/database.py` (`identity_keys`)
+- R5 (partial): `server/server.py` (`/keys/{username}/fingerprint`, `/keys/{username}`), `server/security.py` (`fingerprint_for_pem`)
+- R6 (partial): `client/api_client.py` (`detect_key_change`)
+- R7: `server/server.py` (`/sessions/*`), `server/database.py` (`session_handshakes`), `client/crypto_manager.py` (X25519 + signature verify), `client/ui.py` (auto handshake flow)
+- R8: `client/crypto_manager.py` (AES-GCM encrypt/decrypt with AAD), `server/server.py` (`/messages/send`, `/messages/poll`), `client/ui.py` (encrypted send + decrypt display)
+- R13-R14: `server/server.py` (`/friends/request`, `/friends/requests/*`, `/friends`), `server/database.py` (`friend_requests`, `friendships`), `client/api_client.py`, `client/ui.py`
+- R15 (partial): `server/server.py` (`/friends/remove`, `/friends/block`, `/friends/unblock`), `server/database.py` (`blocks`), `client/ui.py` (Block/Unblock)
+- R16: `server/server.py` (`/messages/send` checks `are_friends`)
+- R17 (partial): `server/server.py` (send returns `sent`, ack endpoint returns `delivered`), `server/database.py` (`delivered_at`)
+- R18 (partial): `server/server.py` (`/messages/{message_id}/ack` used as delivered semantics)
+- R20: `server/database.py` (`messages` queue), `server/server.py` (`/messages/poll`)
 
 ## Functional Requirements
 1. Accounts & Authentication 
