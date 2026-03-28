@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Dict
+from typing import Dict, Optional
 import secrets
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -11,11 +11,19 @@ from config import RATE_LIMITS, SESSION_TTL_HOURS
 from database import db
 from rate_limiter import RateLimiter
 from schemas import (
+    FriendEntry,
+    FriendRequestActionResponse,
+    FriendRequestEntry,
+    FriendRequestListResponse,
+    FriendRequestSendRequest,
+    FriendRequestSendResponse,
+    FriendsListResponse,
     LoginOTPRequest,
     LoginOTPResponse,
     LoginPasswordRequest,
     LoginPasswordResponse,
     LogoutResponse,
+    MeResponse,
     PublicKeyEntry,
     PublicKeysResponse,
     RegisterRequest,
@@ -57,8 +65,8 @@ def register(req: RegisterRequest, request: Request):
         raise HTTPException(status_code=400, detail="Username already exists")
 
     otp_secret = pyotp.random_base32()
-    db.create_user(normalized_username, hash_password(req.password), otp_secret)
-    return RegisterResponse(otp_secret=otp_secret)
+    contact_code = db.create_user(normalized_username, hash_password(req.password), otp_secret)
+    return RegisterResponse(otp_secret=otp_secret, contact_code=contact_code)
 
 
 @app.post("/login/password", response_model=LoginPasswordResponse)
@@ -99,12 +107,136 @@ def logout(session: Dict[str, str] = Depends(get_current_session)):
     return LogoutResponse(detail="Logged out")
 
 
-@app.get("/me")
+def resolve_friend_target_identifier(identifier: str) -> Optional[str]:
+    raw = identifier.strip()
+    if not raw:
+        return None
+    by_username = db.get_user(normalize_username(raw))
+    if by_username:
+        return str(by_username["username"])
+    by_code = db.get_user_by_contact_code(raw)
+    if by_code:
+        return str(by_code["username"])
+    return None
+
+
+@app.get("/me", response_model=MeResponse)
 def me(session: Dict[str, str] = Depends(get_current_session)):
-    return {
-        "username": session["username"],
-        "device_id": session["device_id"],
-    }
+    user = db.get_user(session["username"])
+    if not user or not user["contact_code"]:
+        raise HTTPException(status_code=500, detail="User profile incomplete")
+    return MeResponse(
+        username=session["username"],
+        device_id=session["device_id"],
+        contact_code=str(user["contact_code"]),
+    )
+
+
+@app.post("/friends/request", response_model=FriendRequestSendResponse)
+def send_friend_request(
+    req: FriendRequestSendRequest,
+    request: Request,
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    ip = client_ip(request)
+    rate_limiter.check("friend_action", f"{ip}:{session['username']}", *RATE_LIMITS["friend_action"])
+
+    target = resolve_friend_target_identifier(req.identifier)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    rid, status, err = db.create_or_refresh_friend_request(session["username"], target)
+    if err == "cannot_add_self":
+        raise HTTPException(status_code=400, detail="Cannot add yourself")
+    if err == "already_friends":
+        raise HTTPException(status_code=400, detail="Already friends")
+    if err == "incoming_pending_exists":
+        raise HTTPException(
+            status_code=409,
+            detail="This user already sent you a request; accept or decline it in Request List",
+        )
+    if err == "duplicate_pending":
+        raise HTTPException(status_code=400, detail="Friend request already sent")
+    return FriendRequestSendResponse(id=rid, to_username=target, status=status)
+
+
+@app.get("/friends/requests/incoming", response_model=FriendRequestListResponse)
+def list_incoming_friend_requests(session: Dict[str, str] = Depends(get_current_session)):
+    rows = db.list_incoming_friend_requests(session["username"])
+    return FriendRequestListResponse(
+        requests=[
+            FriendRequestEntry(
+                id=int(r["id"]),
+                counterparty_username=str(r["from_user"]),
+                created_at=datetime.fromisoformat(r["created_at"]),
+            )
+            for r in rows
+        ]
+    )
+
+
+@app.get("/friends/requests/outgoing", response_model=FriendRequestListResponse)
+def list_outgoing_friend_requests(session: Dict[str, str] = Depends(get_current_session)):
+    rows = db.list_outgoing_friend_requests(session["username"])
+    return FriendRequestListResponse(
+        requests=[
+            FriendRequestEntry(
+                id=int(r["id"]),
+                counterparty_username=str(r["to_user"]),
+                created_at=datetime.fromisoformat(r["created_at"]),
+            )
+            for r in rows
+        ]
+    )
+
+
+@app.post("/friends/requests/{request_id}/accept", response_model=FriendRequestActionResponse)
+def accept_friend_request(
+    request_id: int,
+    request: Request,
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    ip = client_ip(request)
+    rate_limiter.check("friend_action", f"{ip}:{session['username']}", *RATE_LIMITS["friend_action"])
+    result = db.accept_friend_request(request_id, session["username"])
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Request not found")
+    if result == "forbidden":
+        raise HTTPException(status_code=403, detail="Not allowed to accept this request")
+    if result == "not_pending":
+        raise HTTPException(status_code=400, detail="Request is not pending")
+    return FriendRequestActionResponse(id=request_id, status="accepted")
+
+
+@app.post("/friends/requests/{request_id}/decline", response_model=FriendRequestActionResponse)
+def decline_friend_request(
+    request_id: int,
+    request: Request,
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    ip = client_ip(request)
+    rate_limiter.check("friend_action", f"{ip}:{session['username']}", *RATE_LIMITS["friend_action"])
+    result = db.decline_friend_request(request_id, session["username"])
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Request not found")
+    if result == "forbidden":
+        raise HTTPException(status_code=403, detail="Not allowed to decline this request")
+    if result == "not_pending":
+        raise HTTPException(status_code=400, detail="Request is not pending")
+    return FriendRequestActionResponse(id=request_id, status="declined")
+
+
+@app.get("/friends", response_model=FriendsListResponse)
+def list_friends(session: Dict[str, str] = Depends(get_current_session)):
+    rows = db.list_friends(session["username"])
+    return FriendsListResponse(
+        friends=[
+            FriendEntry(
+                username=str(r["peer"]),
+                friends_since=datetime.fromisoformat(r["created_at"]),
+            )
+            for r in rows
+        ]
+    )
 
 
 @app.post("/keys", response_model=UploadKeyResponse)

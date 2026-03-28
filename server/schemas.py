@@ -11,6 +11,7 @@ class RegisterRequest(BaseModel):
 
 class RegisterResponse(BaseModel):
     otp_secret: str
+    contact_code: str
 
 
 class LoginPasswordRequest(BaseModel):
@@ -59,3 +60,43 @@ class PublicKeyEntry(BaseModel):
 class PublicKeysResponse(BaseModel):
     username: str
     keys: List[PublicKeyEntry]
+
+
+class MeResponse(BaseModel):
+    username: str
+    device_id: str
+    contact_code: str
+
+
+class FriendRequestSendRequest(BaseModel):
+    identifier: str = Field(min_length=1, max_length=128)
+
+
+class FriendRequestSendResponse(BaseModel):
+    id: int
+    to_username: str
+    status: str
+
+
+class FriendRequestEntry(BaseModel):
+    id: int
+    counterparty_username: str
+    created_at: datetime
+
+
+class FriendRequestListResponse(BaseModel):
+    requests: List[FriendRequestEntry]
+
+
+class FriendRequestActionResponse(BaseModel):
+    id: int
+    status: str
+
+
+class FriendEntry(BaseModel):
+    username: str
+    friends_since: datetime
+
+
+class FriendsListResponse(BaseModel):
+    friends: List[FriendEntry]

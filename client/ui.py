@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, simpledialog, ttk
 
 from PIL import ImageTk
 import pyotp
@@ -81,7 +81,11 @@ class SecureIMApp(tk.Tk):
         if success:
             self.show_page("RegisterOTPPage")
             otp_page = self.frames["RegisterOTPPage"]
-            otp_page.show_qr(username, result)
+            otp_page.show_qr(
+                username,
+                result["otp_secret"],
+                result.get("contact_code") or "",
+            )
             return True
 
         messagebox.showerror("Error", result)
@@ -212,6 +216,8 @@ class RegisterOTPPage(tk.Frame):
         ttk.Label(secret_frame, text="Secret Key:").pack(anchor="w")
         self.secret_entry = ttk.Entry(secret_frame, width=40)
         self.secret_entry.pack(fill="x", pady=5)
+        self.contact_code_label = ttk.Label(secret_frame, text="")
+        self.contact_code_label.pack(anchor="w", pady=(6, 0))
 
         qr_container = ttk.LabelFrame(self, text="Scan QR Code with Authenticator App", padding=10)
         qr_container.pack(pady=10, fill="both", expand=True, padx=20)
@@ -223,9 +229,13 @@ class RegisterOTPPage(tk.Frame):
         btn_frame.pack(pady=10)
         ttk.Button(btn_frame, text="Go to Login", command=lambda: controller.show_page("LoginPage")).pack()
 
-    def show_qr(self, username, secret):
+    def show_qr(self, username, secret, contact_code=""):
         self.secret_entry.delete(0, tk.END)
         self.secret_entry.insert(0, secret)
+        if contact_code:
+            self.contact_code_label.config(text=f"Your contact code: {contact_code}")
+        else:
+            self.contact_code_label.config(text="")
 
         totp_uri = pyotp.TOTP(secret).provisioning_uri(username, issuer_name="SecureIM")
         qr = qrcode.make(totp_uri)
@@ -243,6 +253,7 @@ class HomePage(tk.Frame):
         super().__init__(parent)
         self.controller = controller
         self.current_user = None
+        self._incoming_request_ids = []
 
         root = ttk.Frame(self, padding=10)
         root.pack(fill="both", expand=True)
@@ -250,8 +261,13 @@ class HomePage(tk.Frame):
         top_bar = ttk.Frame(root)
         top_bar.pack(fill="x", pady=(0, 8))
 
-        self.user_label = ttk.Label(top_bar, text="", font=("Arial", 12))
-        self.user_label.pack(side="left")
+        title_col = ttk.Frame(top_bar)
+        title_col.pack(side="left", fill="x", expand=True)
+        self.user_label = ttk.Label(title_col, text="", font=("Arial", 12))
+        self.user_label.pack(anchor="w")
+        self.contact_code_label = ttk.Label(title_col, text="", font=("Arial", 10))
+        self.contact_code_label.pack(anchor="w")
+        ttk.Button(top_bar, text="Refresh", command=self.refresh_social).pack(side="right", padx=(0, 8))
         ttk.Button(top_bar, text="Logout", command=self.logout).pack(side="right")
 
         body = ttk.Panedwindow(root, orient="horizontal")
@@ -263,8 +279,12 @@ class HomePage(tk.Frame):
         body.add(right_panel, weight=3)
 
         ttk.Label(left_panel, text="Friend List", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 6))
-        self.friend_listbox = tk.Listbox(left_panel, height=10)
+        self.friend_listbox = tk.Listbox(left_panel, height=8)
         self.friend_listbox.pack(fill="x", pady=(0, 8))
+
+        ttk.Label(left_panel, text="Sent requests (pending)", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 4))
+        self.outgoing_listbox = tk.Listbox(left_panel, height=3)
+        self.outgoing_listbox.pack(fill="x", pady=(0, 10))
 
         friend_action_row = ttk.Frame(left_panel)
         friend_action_row.pack(fill="x", pady=(0, 12))
@@ -272,8 +292,8 @@ class HomePage(tk.Frame):
         ttk.Button(friend_action_row, text="Remove Friend", command=self.remove_friend).pack(side="left", padx=(0, 6))
         ttk.Button(friend_action_row, text="Block", command=self.block_friend).pack(side="left")
 
-        ttk.Label(left_panel, text="Request List", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 6))
-        self.request_listbox = tk.Listbox(left_panel, height=8)
+        ttk.Label(left_panel, text="Incoming requests", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 6))
+        self.request_listbox = tk.Listbox(left_panel, height=6)
         self.request_listbox.pack(fill="x", pady=(0, 8))
 
         request_action_row = ttk.Frame(left_panel)
@@ -295,13 +315,55 @@ class HomePage(tk.Frame):
     def set_user(self, username):
         self.current_user = username
         self.user_label.config(text=f"Logged in as: {username}")
+        self.refresh_social()
+
+    def refresh_social(self):
+        api = self.controller.api
+        ok, me = api.get_me()
+        if ok:
+            code = me.get("contact_code") or ""
+            self.contact_code_label.config(
+                text=f"Contact code: {code}" if code else "Contact code: —",
+            )
+
+        self.friend_listbox.delete(0, tk.END)
+        ok_f, friends = api.list_friends()
+        if ok_f:
+            for f in friends:
+                self.friend_listbox.insert(tk.END, f.get("username", ""))
+
+        self.outgoing_listbox.delete(0, tk.END)
+        ok_o, outgoing = api.list_outgoing_friend_requests()
+        if ok_o:
+            for r in outgoing:
+                self.outgoing_listbox.insert(tk.END, r.get("counterparty_username", ""))
+
+        self.request_listbox.delete(0, tk.END)
+        self._incoming_request_ids.clear()
+        ok_i, incoming = api.list_incoming_friend_requests()
+        if ok_i:
+            for r in incoming:
+                self._incoming_request_ids.append(r.get("id"))
+                self.request_listbox.insert(tk.END, r.get("counterparty_username", ""))
 
     def logout(self):
         self.controller.api.token = None
         self.controller.show_page("LoginPage")
 
     def add_friend(self):
-        messagebox.showinfo("Info", "Add Friend feature is not implemented yet")
+        ident = simpledialog.askstring(
+            "Add contact",
+            "Enter username or contact code:",
+            parent=self,
+        )
+        if not ident or not ident.strip():
+            return
+        ok, res = self.controller.api.send_friend_request(ident.strip())
+        if ok:
+            messagebox.showinfo("Sent", f"Friend request sent to {res.get('to_username', '')}.")
+            self.refresh_social()
+        else:
+            messagebox.showerror("Error", str(res))
 
     def remove_friend(self):
         messagebox.showinfo("Info", "Remove Friend feature is not implemented yet")
@@ -309,11 +371,36 @@ class HomePage(tk.Frame):
     def block_friend(self):
         messagebox.showinfo("Info", "Block Friend feature is not implemented yet")
 
+    def _selected_incoming_request_id(self):
+        sel = self.request_listbox.curselection()
+        if not sel:
+            messagebox.showwarning("Select request", "Choose an incoming request first.")
+            return None
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self._incoming_request_ids):
+            messagebox.showerror("Error", "Invalid selection.")
+            return None
+        return self._incoming_request_ids[idx]
+
     def accept_request(self):
-        messagebox.showinfo("Info", "Accept Request feature is not implemented yet")
+        rid = self._selected_incoming_request_id()
+        if rid is None:
+            return
+        ok, err = self.controller.api.accept_friend_request(rid)
+        if ok:
+            self.refresh_social()
+        else:
+            messagebox.showerror("Error", str(err))
 
     def decline_request(self):
-        messagebox.showinfo("Info", "Decline Request feature is not implemented yet")
+        rid = self._selected_incoming_request_id()
+        if rid is None:
+            return
+        ok, err = self.controller.api.decline_friend_request(rid)
+        if ok:
+            self.refresh_social()
+        else:
+            messagebox.showerror("Error", str(err))
 
     def block_request(self):
         messagebox.showinfo("Info", "Block Request feature is not implemented yet")
