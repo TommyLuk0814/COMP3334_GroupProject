@@ -1,0 +1,159 @@
+import json
+from pathlib import Path
+import uuid
+
+import requests
+
+API_BASE_URL = "http://127.0.0.1:8000"
+
+
+class IMClientAPI:
+    def __init__(self):
+        self.token = None
+        self.current_user = None
+        self.device_id = self._load_or_create_device_id()
+        self.known_keys_path = Path(__file__).resolve().parent / ".known_contact_keys.json"
+
+    def _load_or_create_device_id(self):
+        device_path = Path(__file__).resolve().parent / ".device_id"
+        if device_path.exists():
+            value = device_path.read_text(encoding="utf-8").strip()
+            if value:
+                return value
+
+        generated = f"device-{uuid.uuid4().hex}"
+        device_path.write_text(generated, encoding="utf-8")
+        return generated
+
+    def register(self, username, password):
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/register",
+                json={"username": username, "password": password},
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        data = resp.json()
+        self.current_user = username
+        return True, data["otp_secret"]
+
+    def verify_login_password(self, username, password):
+        try:
+            resp_pw = requests.post(
+                f"{API_BASE_URL}/login/password",
+                json={"username": username, "password": password},
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp_pw.status_code != 200:
+            try:
+                detail = resp_pw.json().get("detail", resp_pw.text)
+            except Exception:
+                detail = resp_pw.text
+            return False, detail
+
+        self.current_user = username
+        return True, "OTP required"
+
+    def login_with_otp(self, username, password, otp):
+        try:
+            resp_otp = requests.post(
+                f"{API_BASE_URL}/login/otp",
+                json={
+                    "username": username,
+                    "password": password,
+                    "otp": otp,
+                    "device_id": self.device_id,
+                },
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp_otp.status_code != 200:
+            try:
+                detail = resp_otp.json().get("detail", resp_otp.text)
+            except Exception:
+                detail = resp_otp.text
+            return False, detail
+        data = resp_otp.json()
+        self.token = data["access_token"]
+        self.current_user = username
+        return True, self.token
+
+    def set_public_key(self, public_key_pem):
+        if not self.token:
+            return False
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/keys",
+                json={"public_key_pem": public_key_pem},
+                headers={"Authorization": f"Bearer {self.token}"},
+                timeout=5,
+                verify=False,
+            )
+            return resp.status_code == 200
+        except requests.RequestException:
+            return False
+
+    def get_public_key(self, username):
+        if not self.token:
+            return []
+        try:
+            resp = requests.get(
+                f"{API_BASE_URL}/keys/{username}",
+                headers={"Authorization": f"Bearer {self.token}"},
+                timeout=5,
+                verify=False,
+            )
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            return data.get("keys", [])
+        except requests.RequestException:
+            return []
+
+    def detect_key_change(self, username, remote_keys):
+        known = self._load_known_keys()
+        remote_fingerprints = sorted(k.get("fingerprint", "") for k in remote_keys)
+        previous = known.get(username, [])
+        has_changed = previous and previous != remote_fingerprints
+        known[username] = remote_fingerprints
+        self._save_known_keys(known)
+        return has_changed
+
+    def _load_known_keys(self):
+        if not self.known_keys_path.exists():
+            return {}
+        try:
+            return json.loads(self.known_keys_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def _save_known_keys(self, data):
+        self.known_keys_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def send_friend_request(self, friend):
+        return True
+
+    def accept_friend_request(self, friend):
+        return True
+
+    def get_friends(self):
+        return {"friends": [], "pending": []}
+
+    def send_message(self, recipient, ciphertext, nonce, expiry):
+        return True
+
+    def get_messages(self):
+        return []
