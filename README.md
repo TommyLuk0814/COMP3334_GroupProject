@@ -15,7 +15,7 @@
 - [x] R2 Login with Password + OTP
 - [x] R3 Logout / session invalidation
 - [x] R4 Per-device identity keypair
-- [ ] R5 Fingerprint / verification UI (partial: backend fingerprint/public key endpoints exist)
+- [ ] R5 Fingerprint / verification UI (partial: backend fingerprint/public key endpoints exist, full client fingerprint/verified UX pending)
 - [ ] R6 Key change detection (partial: key change detection helper exists, full warning/block UI flow pending)
 - [ ] R7 Secure session establishment
 - [ ] R8 Message encryption and authentication
@@ -23,10 +23,10 @@
 - [ ] R10 TTL / expiration policy
 - [ ] R11 Client deletion behavior
 - [ ] R12 Server storage behavior (best-effort)
-- [ ] R13 Friend request workflow
-- [ ] R14 Request lifecycle
-- [ ] R15 Blocking / removing
-- [ ] R16 Default anti-spam control
+- [x] R13 Friend request workflow
+- [x] R14 Request lifecycle
+- [ ] R15 Blocking / removing (partial: remove/block implemented for social graph and requests; message-layer ignore pending)
+- [ ] R16 Default anti-spam control (partial: no server message API yet, enforcement in message pipeline pending)
 - [ ] R17 Minimum delivery states
 - [ ] R18 Define "Delivered" semantics
 - [ ] R19 Metadata disclosure statement
