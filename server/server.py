@@ -12,6 +12,8 @@ from database import db
 from rate_limiter import RateLimiter
 from schemas import (
     FriendBlockResponse,
+    FriendUnblockResponse,
+    BlockedUsersResponse,
     FriendEntry,
     FriendRemoveResponse,
     FriendRequestActionResponse,
@@ -39,8 +41,13 @@ from schemas import (
     SessionRespondResponse,
     PendingSessionHandshakeEntry,
     PendingSessionHandshakeListResponse,
+    PollMessagesResponse,
+    MessageEnvelope,
+    MessageAckResponse,
     UploadKeyRequest,
     UploadKeyResponse,
+    SendMessageRequest,
+    SendMessageResponse,
 )
 from security import (
     client_ip,
@@ -318,6 +325,31 @@ def block_friend_user(
     return FriendBlockResponse(blocked_username=target)
 
 
+@app.post("/friends/unblock", response_model=FriendUnblockResponse)
+def unblock_friend_user(
+    req: FriendTargetRequest,
+    request: Request,
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    ip = client_ip(request)
+    rate_limiter.check("friend_action", f"{ip}:{session['username']}", *RATE_LIMITS["friend_action"])
+    target = resolve_friend_target_identifier(req.identifier)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    result = db.unblock_user(session["username"], target)
+    if result == "self":
+        raise HTTPException(status_code=400, detail="Cannot unblock yourself")
+    if result == "not_blocked":
+        raise HTTPException(status_code=400, detail="User is not blocked")
+    return FriendUnblockResponse(unblocked_username=target)
+
+
+@app.get("/friends/blocks", response_model=BlockedUsersResponse)
+def list_blocked_users(session: Dict[str, str] = Depends(get_current_session)):
+    blocked_users = db.list_blocked_users(session["username"])
+    return BlockedUsersResponse(blocked_users=blocked_users)
+
+
 @app.post("/friends/requests/{request_id}/block", response_model=FriendBlockResponse)
 def block_friend_request(
     request_id: int,
@@ -440,6 +472,91 @@ def list_responded_session_handshakes(session: Dict[str, str] = Depends(get_curr
             if row["responder_ephemeral_pub"] and row["responder_signature"] and row["responded_at"]
         ]
     )
+
+
+@app.post("/messages/send", response_model=SendMessageResponse)
+def send_message(
+    req: SendMessageRequest,
+    request: Request,
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    ip = client_ip(request)
+    rate_limiter.check("friend_action", f"{ip}:{session['username']}", *RATE_LIMITS["friend_action"])
+
+    recipient_username = normalize_username(req.recipient_username)
+    if recipient_username == session["username"]:
+        raise HTTPException(status_code=400, detail="Cannot send message to yourself")
+    if not db.get_user(recipient_username):
+        raise HTTPException(status_code=404, detail="Recipient user not found")
+    if db.pair_has_block(session["username"], recipient_username):
+        raise HTTPException(status_code=403, detail="Cannot send message to blocked user")
+    if not db.are_friends(session["username"], recipient_username):
+        raise HTTPException(status_code=403, detail="Only friends can exchange messages")
+
+    recipient_device_id = req.recipient_device_id.strip() or None
+    if recipient_device_id:
+        target_device = resolve_target_device_id(recipient_username, recipient_device_id)
+        if not target_device:
+            raise HTTPException(status_code=404, detail="Recipient device not found")
+        recipient_device_id = target_device
+
+    expires_at = None
+    if req.expires_in_seconds > 0:
+        expires_at = (datetime.utcnow() + timedelta(seconds=req.expires_in_seconds)).isoformat()
+
+    msg_id, created_at = db.create_message(
+        sender_user=session["username"],
+        sender_device_id=session["device_id"],
+        recipient_user=recipient_username,
+        recipient_device_id=recipient_device_id,
+        ciphertext=req.ciphertext,
+        nonce=req.nonce,
+        aad=req.aad,
+        sender_counter=req.sender_counter,
+        expires_at=expires_at,
+    )
+    return SendMessageResponse(
+        message_id=msg_id,
+        status="sent",
+        sent_at=datetime.fromisoformat(created_at),
+    )
+
+
+@app.get("/messages/poll", response_model=PollMessagesResponse)
+def poll_messages(session: Dict[str, str] = Depends(get_current_session)):
+    rows = db.list_pending_messages_for_recipient(
+        recipient_user=session["username"],
+        recipient_device_id=session["device_id"],
+        limit=100,
+    )
+    return PollMessagesResponse(
+        messages=[
+            MessageEnvelope(
+                id=int(row["id"]),
+                sender_username=str(row["sender_user"]),
+                sender_device_id=str(row["sender_device_id"]),
+                recipient_username=str(row["recipient_user"]),
+                recipient_device_id=str(row["recipient_device_id"] or session["device_id"]),
+                ciphertext=str(row["ciphertext"]),
+                nonce=str(row["nonce"]),
+                aad=str(row["aad"]),
+                sender_counter=int(row["sender_counter"]),
+                created_at=datetime.fromisoformat(str(row["created_at"])),
+                expires_at=datetime.fromisoformat(str(row["expires_at"])) if row["expires_at"] else None,
+            )
+            for row in rows
+        ]
+    )
+
+
+@app.post("/messages/{message_id}/ack", response_model=MessageAckResponse)
+def ack_message(message_id: int, session: Dict[str, str] = Depends(get_current_session)):
+    result = db.ack_message_delivery(message_id, session["username"], session["device_id"])
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Message not found")
+    if result == "forbidden":
+        raise HTTPException(status_code=403, detail="Not allowed to ack this message")
+    return MessageAckResponse(message_id=message_id, status="delivered")
 
 
 @app.post("/keys", response_model=UploadKeyResponse)

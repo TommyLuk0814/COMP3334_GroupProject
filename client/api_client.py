@@ -358,6 +358,50 @@ class IMClientAPI:
             return False, detail
         return True, resp.json()
 
+    def unblock_user(self, identifier):
+        if not self.token:
+            return False, "Not authenticated"
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/friends/unblock",
+                json={"identifier": identifier.strip()},
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                body = resp.json()
+                detail = body.get("detail", resp.text)
+                if isinstance(detail, list):
+                    detail = str(detail)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json()
+
+    def list_blocked_users(self):
+        if not self.token:
+            return False, "Not authenticated"
+        try:
+            resp = requests.get(
+                f"{API_BASE_URL}/friends/blocks",
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json().get("blocked_users", [])
+
     def block_friend_request(self, request_id):
         if not self.token:
             return False, "Not authenticated"
@@ -470,8 +514,72 @@ class IMClientAPI:
             return False, detail
         return True, resp.json().get("handshakes", [])
 
-    def send_message(self, recipient, ciphertext, nonce, expiry):
-        return True
+    def send_message(self, recipient, recipient_device_id, ciphertext, nonce, aad, sender_counter, expires_in_seconds=0):
+        if not self.token:
+            return False, "Not authenticated"
+        payload = {
+            "recipient_username": recipient,
+            "recipient_device_id": recipient_device_id or "",
+            "ciphertext": ciphertext,
+            "nonce": nonce,
+            "aad": aad,
+            "sender_counter": int(sender_counter),
+            "expires_in_seconds": int(expires_in_seconds),
+        }
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/messages/send",
+                json=payload,
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json()
 
     def get_messages(self):
-        return []
+        if not self.token:
+            return False, "Not authenticated"
+        try:
+            resp = requests.get(
+                f"{API_BASE_URL}/messages/poll",
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json().get("messages", [])
+
+    def ack_message(self, message_id):
+        if not self.token:
+            return False, "Not authenticated"
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/messages/{int(message_id)}/ack",
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json()

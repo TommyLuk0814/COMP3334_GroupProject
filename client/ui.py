@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
+import time
 
 from PIL import ImageTk
 import pyotp
@@ -13,7 +14,11 @@ class SecureIMApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("IM App")
-        self.geometry("900x600")
+        self.geometry("1280x840")
+        self.resizable(False, False)
+
+        style = ttk.Style(self)
+        style.configure("TLabel", font=("Arial", 12))
 
         self.api = IMClientAPI()
         self.crypto = CryptoManager()
@@ -23,6 +28,8 @@ class SecureIMApp(tk.Tk):
 
         self.container = tk.Frame(self)
         self.container.pack(fill="both", expand=True)
+        self.container.grid_rowconfigure(0, weight=1)
+        self.container.grid_columnconfigure(0, weight=1)
 
         self.frames = {}
         for frame_cls in (LoginPage, RegistrationPage, LoginOTPPage, RegisterOTPPage, HomePage):
@@ -97,9 +104,12 @@ class LoginPage(tk.Frame):
         super().__init__(parent)
         self.controller = controller
 
-        ttk.Label(self, text="Login", font=("Arial", 20)).pack(pady=20)
+        center = ttk.Frame(self)
+        center.place(relx=0.5, rely=0.5, anchor="center")
 
-        form_frame = ttk.Frame(self)
+        ttk.Label(center, text="Login").pack(pady=20)
+
+        form_frame = ttk.Frame(center)
         form_frame.pack(pady=10)
 
         ttk.Label(form_frame, text="Username:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
@@ -110,7 +120,7 @@ class LoginPage(tk.Frame):
         self.password_entry = ttk.Entry(form_frame, width=25, show="*")
         self.password_entry.grid(row=1, column=1, padx=5, pady=5)
 
-        btn_frame = ttk.Frame(self)
+        btn_frame = ttk.Frame(center)
         btn_frame.pack(pady=20)
 
         ttk.Button(btn_frame, text="Login", command=self.on_login).pack(side="left", padx=10)
@@ -135,9 +145,12 @@ class RegistrationPage(tk.Frame):
         super().__init__(parent)
         self.controller = controller
 
-        ttk.Label(self, text="Register", font=("Arial", 20)).pack(pady=20)
+        center = ttk.Frame(self)
+        center.place(relx=0.5, rely=0.5, anchor="center")
 
-        form_frame = ttk.Frame(self)
+        ttk.Label(center, text="Register").pack(pady=20)
+
+        form_frame = ttk.Frame(center)
         form_frame.pack(pady=10)
 
         ttk.Label(form_frame, text="Username:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
@@ -152,7 +165,7 @@ class RegistrationPage(tk.Frame):
         self.confirm_entry = ttk.Entry(form_frame, width=25, show="*")
         self.confirm_entry.grid(row=2, column=1, padx=5, pady=5)
 
-        btn_frame = ttk.Frame(self)
+        btn_frame = ttk.Frame(center)
         btn_frame.pack(pady=20)
 
         ttk.Button(btn_frame, text="Register", command=self.on_register).pack(side="left", padx=10)
@@ -179,16 +192,19 @@ class LoginOTPPage(tk.Frame):
         super().__init__(parent)
         self.controller = controller
 
-        ttk.Label(self, text="Enter OTP Code", font=("Arial", 20)).pack(pady=20)
+        center = ttk.Frame(self)
+        center.place(relx=0.5, rely=0.5, anchor="center")
 
-        form_frame = ttk.Frame(self)
+        ttk.Label(center, text="Enter OTP Code").pack(pady=20)
+
+        form_frame = ttk.Frame(center)
         form_frame.pack(pady=10)
 
         ttk.Label(form_frame, text="OTP:").grid(row=0, column=0, padx=5, pady=5)
         self.otp_entry = ttk.Entry(form_frame, width=20)
         self.otp_entry.grid(row=0, column=1, padx=5, pady=5)
 
-        btn_frame = ttk.Frame(self)
+        btn_frame = ttk.Frame(center)
         btn_frame.pack(pady=20)
 
         ttk.Button(btn_frame, text="Confirm", command=self.on_confirm).pack(side="left", padx=10)
@@ -209,9 +225,12 @@ class RegisterOTPPage(tk.Frame):
         super().__init__(parent)
         self.controller = controller
 
-        ttk.Label(self, text="OTP Setup", font=("Arial", 20)).pack(pady=10)
+        center = ttk.Frame(self)
+        center.place(relx=0.5, rely=0.5, anchor="center")
 
-        secret_frame = ttk.Frame(self)
+        ttk.Label(center, text="OTP Setup").pack(pady=10)
+
+        secret_frame = ttk.Frame(center)
         secret_frame.pack(pady=10, fill="x", padx=20)
         ttk.Label(secret_frame, text="Secret Key:").pack(anchor="w")
         self.secret_entry = ttk.Entry(secret_frame, width=40)
@@ -219,13 +238,13 @@ class RegisterOTPPage(tk.Frame):
         self.contact_code_label = ttk.Label(secret_frame, text="")
         self.contact_code_label.pack(anchor="w", pady=(6, 0))
 
-        qr_container = ttk.LabelFrame(self, text="Scan QR Code with Authenticator App", padding=10)
+        qr_container = ttk.LabelFrame(center, text="Scan QR Code with Authenticator App", padding=10)
         qr_container.pack(pady=10, fill="both", expand=True, padx=20)
 
         self.qr_label = ttk.Label(qr_container)
         self.qr_label.pack(expand=True)
 
-        btn_frame = ttk.Frame(self)
+        btn_frame = ttk.Frame(center)
         btn_frame.pack(pady=10)
         ttk.Button(btn_frame, text="Go to Login", command=lambda: controller.show_page("LoginPage")).pack()
 
@@ -255,6 +274,10 @@ class HomePage(tk.Frame):
         self.current_user = None
         self._incoming_request_ids = []
         self._outgoing_request_ids = []
+        self._seen_message_ids = set()
+        self._outgoing_counters = {}
+        self._polling_active = False
+        self._social_refresh_interval_ms = 3000
 
         root = ttk.Frame(self, padding=10)
         root.pack(fill="both", expand=True)
@@ -264,12 +287,10 @@ class HomePage(tk.Frame):
 
         title_col = ttk.Frame(top_bar)
         title_col.pack(side="left", fill="x", expand=True)
-        self.user_label = ttk.Label(title_col, text="", font=("Arial", 12))
+        self.user_label = ttk.Label(title_col, text="")
         self.user_label.pack(anchor="w")
-        self.contact_code_label = ttk.Label(title_col, text="", font=("Arial", 10))
+        self.contact_code_label = ttk.Label(title_col, text="")
         self.contact_code_label.pack(anchor="w")
-        ttk.Button(top_bar, text="Sync Sessions", command=self.sync_sessions).pack(side="right", padx=(0, 8))
-        ttk.Button(top_bar, text="Refresh", command=self.refresh_social).pack(side="right", padx=(0, 8))
         ttk.Button(top_bar, text="Logout", command=self.logout).pack(side="right")
 
         body = ttk.Panedwindow(root, orient="horizontal")
@@ -280,25 +301,23 @@ class HomePage(tk.Frame):
         body.add(left_panel, weight=1)
         body.add(right_panel, weight=3)
 
-        ttk.Label(left_panel, text="Friend List", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 6))
-        self.friend_listbox = tk.Listbox(left_panel, height=8)
+        ttk.Label(left_panel, text="Friend List").pack(anchor="w", pady=(0, 6))
+        self.friend_listbox = tk.Listbox(left_panel, height=12)
         self.friend_listbox.pack(fill="x", pady=(0, 8))
-
-        ttk.Label(left_panel, text="Sent requests (pending)", font=("Arial", 10, "bold")).pack(anchor="w", pady=(0, 4))
-        self.outgoing_listbox = tk.Listbox(left_panel, height=3)
-        self.outgoing_listbox.pack(fill="x", pady=(0, 4))
-        ttk.Button(left_panel, text="Cancel selected sent request", command=self.cancel_outgoing_request).pack(
-            anchor="w", pady=(0, 10)
-        )
 
         friend_action_row = ttk.Frame(left_panel)
         friend_action_row.pack(fill="x", pady=(0, 12))
         ttk.Button(friend_action_row, text="Add Friend", command=self.add_friend).pack(side="left", padx=(0, 6))
-        ttk.Button(friend_action_row, text="Establish Session", command=self.establish_session).pack(side="left", padx=(0, 6))
         ttk.Button(friend_action_row, text="Remove Friend", command=self.remove_friend).pack(side="left", padx=(0, 6))
-        ttk.Button(friend_action_row, text="Block", command=self.block_friend).pack(side="left")
 
-        ttk.Label(left_panel, text="Incoming requests", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 6))
+        ttk.Label(left_panel, text="Pending Requests").pack(anchor="w", pady=(0, 4))
+        self.outgoing_listbox = tk.Listbox(left_panel, height=6)
+        self.outgoing_listbox.pack(fill="x", pady=(0, 4))
+        ttk.Button(left_panel, text="Cancel", command=self.cancel_outgoing_request).pack(
+            anchor="w", pady=(0, 10)
+        )
+
+        ttk.Label(left_panel, text="Incoming Requests").pack(anchor="w", pady=(0, 6))
         self.request_listbox = tk.Listbox(left_panel, height=6)
         self.request_listbox.pack(fill="x", pady=(0, 8))
 
@@ -306,9 +325,16 @@ class HomePage(tk.Frame):
         request_action_row.pack(fill="x")
         ttk.Button(request_action_row, text="Accept", command=self.accept_request).pack(side="left", padx=(0, 6))
         ttk.Button(request_action_row, text="Decline", command=self.decline_request).pack(side="left", padx=(0, 6))
-        ttk.Button(request_action_row, text="Block", command=self.block_request).pack(side="left")
 
-        ttk.Label(right_panel, text="Chat", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 6))
+        ttk.Label(left_panel, text="Blocked Users").pack(anchor="w", pady=(12, 4))
+        self.blocked_listbox = tk.Listbox(left_panel, height=5)
+        self.blocked_listbox.pack(fill="x", pady=(0, 8))
+        blocked_action_row = ttk.Frame(left_panel)
+        blocked_action_row.pack(anchor="w", pady=(0, 10))
+        ttk.Button(blocked_action_row, text="Block", command=self.block_friend).pack(side="left", padx=(0, 6))
+        ttk.Button(blocked_action_row, text="Unblock", command=self.unblock_user).pack(side="left")
+
+        ttk.Label(right_panel, text="Chat").pack(anchor="w", pady=(0, 6))
         self.chat_text = tk.Text(right_panel, state="disabled", wrap="word")
         self.chat_text.pack(fill="both", expand=True)
 
@@ -320,8 +346,12 @@ class HomePage(tk.Frame):
 
     def set_user(self, username):
         self.current_user = username
-        self.user_label.config(text=f"Logged in as: {username}")
+        self.user_label.config(text=f"Username: {username}")
         self.refresh_social()
+        if not self._polling_active:
+            self._polling_active = True
+            self.after(800, self._poll_messages_loop)
+            self.after(1200, self._social_refresh_loop)
 
     def refresh_social(self):
         api = self.controller.api
@@ -329,7 +359,7 @@ class HomePage(tk.Frame):
         if ok:
             code = me.get("contact_code") or ""
             self.contact_code_label.config(
-                text=f"Contact code: {code}" if code else "Contact code: —",
+                text=f"Contact Code: {code}" if code else "Contact Code: —",
             )
 
         self.friend_listbox.delete(0, tk.END)
@@ -354,9 +384,22 @@ class HomePage(tk.Frame):
                 self._incoming_request_ids.append(r.get("id"))
                 self.request_listbox.insert(tk.END, r.get("counterparty_username", ""))
 
+        self.blocked_listbox.delete(0, tk.END)
+        ok_b, blocked_users = api.list_blocked_users()
+        if ok_b:
+            for blocked_user in blocked_users:
+                self.blocked_listbox.insert(tk.END, blocked_user)
+
     def logout(self):
+        self._polling_active = False
         self.controller.api.token = None
         self.controller.show_page("LoginPage")
+
+    def _social_refresh_loop(self):
+        if not self._polling_active:
+            return
+        self.refresh_social()
+        self.after(self._social_refresh_interval_ms, self._social_refresh_loop)
 
     def add_friend(self):
         ident = simpledialog.askstring(
@@ -393,24 +436,36 @@ class HomePage(tk.Frame):
             messagebox.showerror("Error", str(res))
 
     def block_friend(self):
-        peer = None
-        sel = self.friend_listbox.curselection()
-        if sel:
-            peer = self.friend_listbox.get(int(sel[0])).strip() or None
-        if not peer:
-            entered = simpledialog.askstring(
-                "Block user",
-                "Enter username or contact code:",
-                parent=self,
-            )
-            if not entered or not entered.strip():
-                return
-            peer = entered.strip()
+        entered = simpledialog.askstring(
+            "Block user",
+            "Enter username or contact code:",
+            parent=self,
+        )
+        if not entered or not entered.strip():
+            return
+        peer = entered.strip()
         if not messagebox.askyesno("Block user", f"Block {peer}? They will not be able to send requests or messages to you."):
             return
         ok, res = self.controller.api.block_user(peer)
         if ok:
             messagebox.showinfo("Blocked", f"Blocked {res.get('blocked_username', peer)}.")
+            self.refresh_social()
+        else:
+            messagebox.showerror("Error", str(res))
+
+    def unblock_user(self):
+        sel = self.blocked_listbox.curselection()
+        if not sel:
+            entered = simpledialog.askstring("Unblock user", "Enter username or contact code:", parent=self)
+            if not entered or not entered.strip():
+                return
+            target = entered.strip()
+        else:
+            target = self.blocked_listbox.get(int(sel[0])).strip()
+
+        ok, res = self.controller.api.unblock_user(target)
+        if ok:
+            messagebox.showinfo("Unblocked", f"Unblocked {res.get('unblocked_username', target)}.")
             self.refresh_social()
         else:
             messagebox.showerror("Error", str(res))
@@ -493,23 +548,18 @@ class HomePage(tk.Frame):
                 return key_entry.get("public_key_pem", "")
         return ""
 
-    def establish_session(self):
-        peer = self._selected_friend_username()
-        if not peer:
-            return
+    def _initiate_session_with_peer(self, peer):
         if self.controller.crypto.has_session_with(peer):
-            messagebox.showinfo("Session", f"Session with {peer} already exists.")
-            return
-
+            return True
         keys = self.controller.api.get_public_key(peer)
         if not keys:
-            messagebox.showerror("Error", "Peer has no published identity key/device.")
-            return
+            self._append_system_message(f"Cannot start session with {peer}: peer has no published identity key/device.")
+            return False
 
         target_device_id = keys[0].get("device_id", "")
         if not target_device_id:
-            messagebox.showerror("Error", "Cannot determine target device.")
-            return
+            self._append_system_message(f"Cannot start session with {peer}: cannot determine target device.")
+            return False
 
         try:
             eph_pub, init_sig, eph_priv = self.controller.crypto.create_initiator_handshake(
@@ -519,18 +569,18 @@ class HomePage(tk.Frame):
                 recipient_device_id=target_device_id,
             )
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to build handshake: {e}")
-            return
+            self._append_system_message(f"Failed to build handshake with {peer}: {e}")
+            return False
 
         ok, result = self.controller.api.init_session_handshake(peer, target_device_id, eph_pub, init_sig)
         if not ok:
-            messagebox.showerror("Error", str(result))
-            return
+            self._append_system_message(f"Failed to send handshake to {peer}: {result}")
+            return False
 
         handshake_id = result.get("handshake_id")
         if handshake_id is None:
-            messagebox.showerror("Error", "Handshake response missing id")
-            return
+            self._append_system_message(f"Failed to send handshake to {peer}: missing handshake id.")
+            return False
 
         self.controller.crypto.remember_initiator_private_key(
             int(handshake_id),
@@ -539,6 +589,7 @@ class HomePage(tk.Frame):
             eph_priv,
         )
         self._append_system_message(f"Session handshake sent to {peer} ({target_device_id}).")
+        return True
 
     def sync_sessions(self):
         api = self.controller.api
@@ -598,11 +649,84 @@ class HomePage(tk.Frame):
         text = self.chat_input.get().strip()
         if not text:
             return
+
+        peer = self._selected_friend_username()
+        if not peer:
+            return
+        if not self.controller.crypto.has_session_with(peer):
+            started = self._initiate_session_with_peer(peer)
+            if not started:
+                messagebox.showwarning("No secure session", "Unable to start secure session automatically.")
+                return
+            self.sync_sessions()
+            if not self.controller.crypto.has_session_with(peer):
+                messagebox.showinfo(
+                    "Session pending",
+                    "Secure session is being established. Ask your friend to stay online; message can be sent shortly.",
+                )
+                return
+
+        counter = int(self._outgoing_counters.get(peer, 0)) + 1
+        self._outgoing_counters[peer] = counter
+        aad = {
+            "sender": self.current_user,
+            "recipient": peer,
+            "sender_counter": counter,
+            "ts": int(time.time()),
+        }
+        try:
+            encrypted = self.controller.crypto.encrypt_message(peer, text, aad)
+        except Exception as e:
+            messagebox.showerror("Encrypt error", str(e))
+            return
+
+        ok, result = self.controller.api.send_message(
+            recipient=peer,
+            recipient_device_id=self.controller.crypto.session_peer_device_id(peer),
+            ciphertext=encrypted["ciphertext"],
+            nonce=encrypted["nonce"],
+            aad=encrypted["aad"],
+            sender_counter=counter,
+            expires_in_seconds=0,
+        )
+        if not ok:
+            messagebox.showerror("Send failed", str(result))
+            return
+
         self.chat_text.configure(state="normal")
-        self.chat_text.insert(tk.END, f"Me: {text}\n")
+        self.chat_text.insert(tk.END, f"Me -> {peer}: {text}\n")
         self.chat_text.see(tk.END)
         self.chat_text.configure(state="disabled")
         self.chat_input.delete(0, tk.END)
+
+    def _poll_messages_loop(self):
+        if not self._polling_active:
+            return
+
+        self.sync_sessions()
+        ok, result = self.controller.api.get_messages()
+        if ok:
+            for msg in result:
+                msg_id = int(msg.get("id", -1))
+                if msg_id < 0 or msg_id in self._seen_message_ids:
+                    continue
+                sender = msg.get("sender_username", "")
+                ciphertext = msg.get("ciphertext", "")
+                nonce = msg.get("nonce", "")
+                aad = msg.get("aad", "")
+                try:
+                    plaintext, _ = self.controller.crypto.decrypt_message(sender, ciphertext, nonce, aad)
+                except Exception:
+                    plaintext = "[Unable to decrypt message]"
+
+                self.chat_text.configure(state="normal")
+                self.chat_text.insert(tk.END, f"{sender}: {plaintext}\n")
+                self.chat_text.see(tk.END)
+                self.chat_text.configure(state="disabled")
+                self._seen_message_ids.add(msg_id)
+                self.controller.api.ack_message(msg_id)
+
+        self.after(1500, self._poll_messages_loop)
 
     def clear(self):
         self.chat_input.delete(0, tk.END)

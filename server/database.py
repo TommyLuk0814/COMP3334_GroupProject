@@ -60,7 +60,32 @@ class DB:
             self._ensure_blocks_table(cur)
             self._ensure_contact_code_column(cur)
             self._ensure_session_handshakes_table(cur)
+            self._ensure_messages_table(cur)
             self.conn.commit()
+
+    def _ensure_messages_table(self, cur: sqlite3.Cursor) -> None:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender_user TEXT NOT NULL,
+                sender_device_id TEXT NOT NULL,
+                recipient_user TEXT NOT NULL,
+                recipient_device_id TEXT,
+                ciphertext TEXT NOT NULL,
+                nonce TEXT NOT NULL,
+                aad TEXT NOT NULL,
+                sender_counter INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT,
+                delivered_at TEXT,
+                FOREIGN KEY(sender_user) REFERENCES users(username),
+                FOREIGN KEY(recipient_user) REFERENCES users(username)
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_recipient_pending ON messages(recipient_user, delivered_at)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)")
 
     def _ensure_session_handshakes_table(self, cur: sqlite3.Cursor) -> None:
         cur.execute(
@@ -227,6 +252,27 @@ class DB:
         now = datetime.utcnow().isoformat()
         with self.lock:
             return self._block_user_unlocked(blocker, blocked, now)
+
+    def unblock_user(self, blocker: str, blocked: str) -> str:
+        if blocker == blocked:
+            return "self"
+        with self.lock:
+            cur = self.conn.execute(
+                "DELETE FROM blocks WHERE blocker = ? AND blocked = ?",
+                (blocker, blocked),
+            )
+            self.conn.commit()
+            if cur.rowcount == 0:
+                return "not_blocked"
+            return "ok"
+
+    def list_blocked_users(self, blocker: str) -> List[str]:
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT blocked FROM blocks WHERE blocker = ? ORDER BY blocked",
+                (blocker,),
+            ).fetchall()
+            return [str(r["blocked"]) for r in rows]
 
     def block_from_friend_request(self, request_id: int, acting_user: str) -> Tuple[str, Optional[str]]:
         now = datetime.utcnow().isoformat()
@@ -716,6 +762,114 @@ class DB:
                 (username,),
             ).fetchall()
             return rows
+
+    def create_message(
+        self,
+        sender_user: str,
+        sender_device_id: str,
+        recipient_user: str,
+        recipient_device_id: Optional[str],
+        ciphertext: str,
+        nonce: str,
+        aad: str,
+        sender_counter: int,
+        expires_at: Optional[str],
+    ) -> Tuple[int, str]:
+        created_at = datetime.utcnow().isoformat()
+        with self.lock:
+            self.conn.execute(
+                """
+                INSERT INTO messages(
+                    sender_user,
+                    sender_device_id,
+                    recipient_user,
+                    recipient_device_id,
+                    ciphertext,
+                    nonce,
+                    aad,
+                    sender_counter,
+                    created_at,
+                    expires_at,
+                    delivered_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                """,
+                (
+                    sender_user,
+                    sender_device_id,
+                    recipient_user,
+                    recipient_device_id,
+                    ciphertext,
+                    nonce,
+                    aad,
+                    sender_counter,
+                    created_at,
+                    expires_at,
+                ),
+            )
+            msg_id = int(self.conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+            self.conn.commit()
+            return msg_id, created_at
+
+    def list_pending_messages_for_recipient(
+        self,
+        recipient_user: str,
+        recipient_device_id: str,
+        limit: int = 100,
+    ) -> List[sqlite3.Row]:
+        now = datetime.utcnow().isoformat()
+        with self.lock:
+            return self.conn.execute(
+                """
+                SELECT
+                    id,
+                    sender_user,
+                    sender_device_id,
+                    recipient_user,
+                    recipient_device_id,
+                    ciphertext,
+                    nonce,
+                    aad,
+                    sender_counter,
+                    created_at,
+                    expires_at
+                FROM messages
+                WHERE recipient_user = ?
+                  AND delivered_at IS NULL
+                  AND (recipient_device_id IS NULL OR recipient_device_id = ?)
+                  AND (expires_at IS NULL OR expires_at > ?)
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (recipient_user, recipient_device_id, now, limit),
+            ).fetchall()
+
+    def ack_message_delivery(self, message_id: int, acting_user: str, acting_device_id: str) -> str:
+        now = datetime.utcnow().isoformat()
+        with self.lock:
+            row = self.conn.execute(
+                """
+                SELECT id, recipient_user, recipient_device_id, delivered_at
+                FROM messages
+                WHERE id = ?
+                """,
+                (message_id,),
+            ).fetchone()
+            if not row:
+                return "not_found"
+            if row["recipient_user"] != acting_user:
+                return "forbidden"
+            if row["recipient_device_id"] and row["recipient_device_id"] != acting_device_id:
+                return "forbidden"
+            if row["delivered_at"]:
+                return "already_acked"
+
+            self.conn.execute(
+                "UPDATE messages SET delivered_at = ? WHERE id = ?",
+                (now, message_id),
+            )
+            self.conn.commit()
+            return "ok"
 
 
 db = DB(DB_PATH)

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -114,6 +114,14 @@ class FriendBlockResponse(BaseModel):
     blocked_username: str
 
 
+class FriendUnblockResponse(BaseModel):
+    unblocked_username: str
+
+
+class BlockedUsersResponse(BaseModel):
+    blocked_users: List[str]
+
+
 class SessionInitRequest(BaseModel):
     target_username: str = Field(min_length=1, max_length=128)
     target_device_id: str = Field(default="", max_length=128)
@@ -164,3 +172,42 @@ class RespondedSessionHandshakeEntry(BaseModel):
 
 class RespondedSessionHandshakeListResponse(BaseModel):
     handshakes: List[RespondedSessionHandshakeEntry]
+
+
+class SendMessageRequest(BaseModel):
+    recipient_username: str = Field(min_length=1, max_length=128)
+    recipient_device_id: str = Field(default="", max_length=128)
+    ciphertext: str = Field(min_length=1, max_length=100000)
+    nonce: str = Field(min_length=1, max_length=4096)
+    aad: str = Field(min_length=1, max_length=20000)
+    sender_counter: int = Field(ge=0)
+    expires_in_seconds: int = Field(default=0, ge=0, le=86400)
+
+
+class SendMessageResponse(BaseModel):
+    message_id: int
+    status: str
+    sent_at: datetime
+
+
+class MessageEnvelope(BaseModel):
+    id: int
+    sender_username: str
+    sender_device_id: str
+    recipient_username: str
+    recipient_device_id: str
+    ciphertext: str
+    nonce: str
+    aad: str
+    sender_counter: int
+    created_at: datetime
+    expires_at: Optional[datetime] = None
+
+
+class PollMessagesResponse(BaseModel):
+    messages: List[MessageEnvelope]
+
+
+class MessageAckResponse(BaseModel):
+    message_id: int
+    status: str

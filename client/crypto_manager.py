@@ -1,10 +1,13 @@
 import time
 import base64
+import json
+import os
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 
@@ -251,6 +254,10 @@ class CryptoManager:
     def has_session_with(self, peer_username: str) -> bool:
         return peer_username in self.session_keys
 
+    def session_peer_device_id(self, peer_username: str) -> str:
+        entry = self.session_keys.get(peer_username) or {}
+        return str(entry.get("peer_device_id", ""))
+
     def load_peer_public_key(self, peer, pem):
         self.session_keys[peer] = {
             "peer_identity_key": Ed25519PublicKey.from_public_bytes(
@@ -261,12 +268,34 @@ class CryptoManager:
             )
         }
 
-    def encrypt_message(self, peer, message, expiry):
+    def _message_key_bytes(self, peer: str) -> bytes:
+        entry = self.session_keys.get(peer)
+        if not entry:
+            raise ValueError(f"No established session with {peer}")
+        key_b64 = entry.get("session_key", "")
+        if not key_b64:
+            raise ValueError(f"Session key missing for {peer}")
+        return base64.b64decode(str(key_b64).encode("utf-8"))
+
+    def encrypt_message(self, peer: str, message: str, aad_obj: Dict[str, object]):
+        key = self._message_key_bytes(peer)
+        nonce = os.urandom(12)
+        aad_json = json.dumps(aad_obj, sort_keys=True, separators=(",", ":"))
+        aes = AESGCM(key)
+        ciphertext = aes.encrypt(nonce, message.encode("utf-8"), aad_json.encode("utf-8"))
         return {
-            "ciphertext": message,
-            "nonce": "mock_nonce",
+            "ciphertext": base64.b64encode(ciphertext).decode("utf-8"),
+            "nonce": base64.b64encode(nonce).decode("utf-8"),
+            "aad": base64.b64encode(aad_json.encode("utf-8")).decode("utf-8"),
             "timestamp": int(time.time()),
         }
 
-    def decrypt_message(self, sender, ciphertext, nonce, timestamp, expiry):
-        return ciphertext, None
+    def decrypt_message(self, sender: str, ciphertext_b64: str, nonce_b64: str, aad_b64: str):
+        key = self._message_key_bytes(sender)
+        aes = AESGCM(key)
+        nonce = base64.b64decode(nonce_b64.encode("utf-8"))
+        ciphertext = base64.b64decode(ciphertext_b64.encode("utf-8"))
+        aad_json_bytes = base64.b64decode(aad_b64.encode("utf-8"))
+        plaintext = aes.decrypt(nonce, ciphertext, aad_json_bytes)
+        aad_obj = json.loads(aad_json_bytes.decode("utf-8"))
+        return plaintext.decode("utf-8"), aad_obj
