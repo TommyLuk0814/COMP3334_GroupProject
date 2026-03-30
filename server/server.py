@@ -48,6 +48,9 @@ from schemas import (
     UploadKeyResponse,
     SendMessageRequest,
     SendMessageResponse,
+    UploadPrekeysRequest,
+    UploadPrekeysResponse,
+    ClaimPrekeyResponse,
 )
 from security import (
     client_ip,
@@ -610,6 +613,65 @@ def get_public_key_fingerprints(username: str, session: Dict[str, str] = Depends
             for row in rows
         ],
     }
+
+
+@app.post("/prekeys/upload", response_model=UploadPrekeysResponse)
+def upload_prekeys(req: UploadPrekeysRequest, session: Dict[str, str] = Depends(get_current_session)):
+    prekeys = [
+        {
+            "prekey_id": item.prekey_id,
+            "prekey_public": item.prekey_public,
+            "prekey_signature": item.prekey_signature,
+        }
+        for item in req.prekeys
+    ]
+    uploaded = db.upsert_prekeys(
+        username=session["username"],
+        device_id=session["device_id"],
+        prekeys=prekeys,
+    )
+    return UploadPrekeysResponse(uploaded=uploaded)
+
+
+@app.get("/prekeys/{username}/claim", response_model=ClaimPrekeyResponse)
+def claim_prekey_bundle(
+    username: str,
+    device_id: str = "",
+    session: Dict[str, str] = Depends(get_current_session),
+):
+    target_username = normalize_username(username)
+    if target_username == session["username"]:
+        raise HTTPException(status_code=400, detail="Cannot claim prekey for yourself")
+    if not db.get_user(target_username):
+        raise HTTPException(status_code=404, detail="Target user not found")
+    if db.pair_has_block(session["username"], target_username):
+        raise HTTPException(status_code=403, detail="Cannot claim prekey for blocked user")
+    if not db.are_friends(session["username"], target_username):
+        raise HTTPException(status_code=403, detail="Only friends can claim prekeys")
+
+    preferred_device_id = device_id.strip() if device_id else ""
+    claimed = db.claim_prekey(target_username, preferred_device_id or None)
+    if not claimed:
+        raise HTTPException(status_code=404, detail="No available prekey for target user")
+
+    keys = db.list_identity_keys(target_username)
+    identity_key_pem = ""
+    target_device = str(claimed["device_id"])
+    for key_row in keys:
+        if str(key_row["device_id"]) == target_device:
+            identity_key_pem = str(key_row["public_key_pem"])
+            break
+    if not identity_key_pem:
+        raise HTTPException(status_code=404, detail="Target identity key not found")
+
+    return ClaimPrekeyResponse(
+        username=target_username,
+        device_id=target_device,
+        identity_key_pem=identity_key_pem,
+        prekey_id=str(claimed["prekey_id"]),
+        prekey_public=str(claimed["prekey_public"]),
+        prekey_signature=str(claimed["prekey_signature"]),
+    )
 
 
 if __name__ == "__main__":

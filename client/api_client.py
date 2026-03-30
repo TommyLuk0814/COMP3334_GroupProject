@@ -123,6 +123,52 @@ class IMClientAPI:
         except requests.RequestException:
             return []
 
+    def upload_prekeys(self, prekeys):
+        if not self.token:
+            return False, "Not authenticated"
+        payload = {"prekeys": prekeys or []}
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/prekeys/upload",
+                json=payload,
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json()
+
+    def claim_prekey_bundle(self, username, device_id=""):
+        if not self.token:
+            return False, "Not authenticated"
+        params = {}
+        if device_id:
+            params["device_id"] = device_id
+        try:
+            resp = requests.get(
+                f"{API_BASE_URL}/prekeys/{username}/claim",
+                params=params,
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json()
+
     def detect_key_change(self, username, remote_keys):
         known = self._load_known_keys()
         remote_fingerprints = sorted(k.get("fingerprint", "") for k in remote_keys)

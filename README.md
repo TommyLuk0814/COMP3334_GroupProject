@@ -17,7 +17,7 @@
 - [x] R4 Per-device identity keypair
 - [ ] R5 Fingerprint / verification UI (partial: backend fingerprint/public key endpoints exist, full client fingerprint/verified UX pending)
 - [ ] R6 Key change detection (partial: key change detection helper exists, full warning/block UI flow pending)
-- [x] R7 Secure session establishment (implemented as signed X25519 ephemeral handshake over authenticated identity keys)
+- [x] R7 Secure session establishment (implemented as signed X25519 handshake plus signed one-time prekey flow for offline first-message bootstrap)
 - [x] R8 Message encryption and authentication
 - [ ] R9 Replay protection / de-duplication
 - [ ] R10 TTL / expiration policy
@@ -30,7 +30,7 @@
 - [ ] R17 Minimum delivery states (partial: server returns sent/delivered states, sender-side delivered status UI is pending)
 - [ ] R18 Define "Delivered" semantics (partial: delivered currently mapped to recipient ACK endpoint)
 - [ ] R19 Metadata disclosure statement
-- [x] R20 Offline ciphertext queue
+- [x] R20 Offline ciphertext queue (including first-message support via prekey claim when recipient is offline)
 - [ ] R21 Retention and cleanup
 - [ ] R22 Duplicate/replay robustness
 - [ ] R23 Conversation list
@@ -42,14 +42,14 @@
 - R4: `client/crypto_manager.py`, `server/server.py` (`/keys`), `server/database.py` (`identity_keys`)
 - R5 (partial): `server/server.py` (`/keys/{username}/fingerprint`, `/keys/{username}`), `server/security.py` (`fingerprint_for_pem`)
 - R6 (partial): `client/api_client.py` (`detect_key_change`)
-- R7: `server/server.py` (`/sessions/*`), `server/database.py` (`session_handshakes`), `client/crypto_manager.py` (X25519 + signature verify), `client/ui.py` (auto handshake flow)
+- R7: `server/server.py` (`/sessions/*`, `/prekeys/*`), `server/database.py` (`session_handshakes`, `prekeys`), `client/crypto_manager.py` (X25519 handshake + prekey verify/derive), `client/ui.py` (auto handshake + prekey bootstrap flow)
 - R8: `client/crypto_manager.py` (AES-GCM encrypt/decrypt with AAD), `server/server.py` (`/messages/send`, `/messages/poll`), `client/ui.py` (encrypted send + decrypt display)
 - R13-R14: `server/server.py` (`/friends/request`, `/friends/requests/*`, `/friends`), `server/database.py` (`friend_requests`, `friendships`), `client/api_client.py`, `client/ui.py`
 - R15 (partial): `server/server.py` (`/friends/remove`, `/friends/block`, `/friends/unblock`), `server/database.py` (`blocks`), `client/ui.py` (Block/Unblock)
 - R16: `server/server.py` (`/messages/send` checks `are_friends`)
 - R17 (partial): `server/server.py` (send returns `sent`, ack endpoint returns `delivered`), `server/database.py` (`delivered_at`)
 - R18 (partial): `server/server.py` (`/messages/{message_id}/ack` used as delivered semantics)
-- R20: `server/database.py` (`messages` queue), `server/server.py` (`/messages/poll`)
+- R20: `server/database.py` (`messages` queue, `prekeys`), `server/server.py` (`/messages/poll`, `/prekeys/{username}/claim`), `client/ui.py` (prekey-first send path)
 
 ## Functional Requirements
 1. Accounts & Authentication 

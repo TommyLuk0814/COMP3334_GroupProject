@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 import time
+import base64
+import json
 
 from PIL import ImageTk
 import pyotp
@@ -68,6 +70,9 @@ class SecureIMApp(tk.Tk):
         success, result = self.api.login_with_otp(self.temp_username, self.temp_password, otp)
         if success:
             self.api.set_public_key(self.crypto.get_public_key_pem())
+            prekeys = self.crypto.generate_prekeys_upload_batch(self.temp_username, self.api.device_id, count=20)
+            if prekeys:
+                self.api.upload_prekeys(prekeys)
             home = self.frames["HomePage"]
             home.set_user(self.temp_username)
             self.show_page("HomePage")
@@ -620,6 +625,16 @@ class HomePage(tk.Frame):
                 return key_entry.get("public_key_pem", "")
         return ""
 
+    def _decode_aad_obj(self, aad_b64):
+        try:
+            raw = base64.b64decode(str(aad_b64).encode("utf-8"))
+            obj = json.loads(raw.decode("utf-8"))
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            return {}
+        return {}
+
     def _initiate_session_with_peer(self, peer):
         if self.controller.crypto.has_session_with(peer):
             return True
@@ -726,19 +741,6 @@ class HomePage(tk.Frame):
         if not peer:
             messagebox.showwarning("Select friend", "Choose someone in the friend list first.")
             return
-        if not self.controller.crypto.has_session_with(peer):
-            started = self._initiate_session_with_peer(peer)
-            if not started:
-                messagebox.showwarning("No secure session", "Unable to start secure session automatically.")
-                return
-            self.sync_sessions()
-            if not self.controller.crypto.has_session_with(peer):
-                messagebox.showinfo(
-                    "Session pending",
-                    "Secure session is being established. Ask your friend to stay online; message can be sent shortly.",
-                )
-                return
-
         counter = int(self._outgoing_counters.get(peer, 0)) + 1
         self._outgoing_counters[peer] = counter
         aad = {
@@ -747,15 +749,58 @@ class HomePage(tk.Frame):
             "sender_counter": counter,
             "ts": int(time.time()),
         }
-        try:
-            encrypted = self.controller.crypto.encrypt_message(peer, text, aad)
-        except Exception as e:
-            messagebox.showerror("Encrypt error", str(e))
-            return
+        encrypted = None
+
+        if self.controller.crypto.has_session_with(peer):
+            try:
+                encrypted = self.controller.crypto.encrypt_message(peer, text, aad)
+            except Exception as e:
+                messagebox.showerror("Encrypt error", str(e))
+                return
+        else:
+            ok_bundle, bundle = self.controller.api.claim_prekey_bundle(peer)
+            if ok_bundle:
+                try:
+                    encrypted = self.controller.crypto.encrypt_message_with_prekey_bundle(
+                        peer_username=peer,
+                        peer_device_id=str(bundle.get("device_id", "")),
+                        my_username=self.current_user,
+                        my_device_id=self.controller.api.device_id,
+                        peer_identity_key_pem=str(bundle.get("identity_key_pem", "")),
+                        prekey_id=str(bundle.get("prekey_id", "")),
+                        prekey_public=str(bundle.get("prekey_public", "")),
+                        prekey_signature=str(bundle.get("prekey_signature", "")),
+                        message=text,
+                        aad_obj=aad,
+                    )
+                except Exception as e:
+                    messagebox.showerror("Encrypt error", f"Failed prekey encryption: {e}")
+                    return
+            else:
+                started = self._initiate_session_with_peer(peer)
+                if not started:
+                    messagebox.showwarning("No secure session", "Unable to start secure session automatically.")
+                    return
+                self.sync_sessions()
+                if not self.controller.crypto.has_session_with(peer):
+                    messagebox.showinfo(
+                        "Session pending",
+                        "Secure session is being established. Ask your friend to stay online; message can be sent shortly.",
+                    )
+                    return
+                try:
+                    encrypted = self.controller.crypto.encrypt_message(peer, text, aad)
+                except Exception as e:
+                    messagebox.showerror("Encrypt error", str(e))
+                    return
+
+        recipient_device_id = encrypted.get("recipient_device_id") if isinstance(encrypted, dict) else None
+        if not recipient_device_id:
+            recipient_device_id = self.controller.crypto.session_peer_device_id(peer)
 
         ok, result = self.controller.api.send_message(
             recipient=peer,
-            recipient_device_id=self.controller.crypto.session_peer_device_id(peer),
+            recipient_device_id=recipient_device_id,
             ciphertext=encrypted["ciphertext"],
             nonce=encrypted["nonce"],
             aad=encrypted["aad"],
@@ -781,13 +826,33 @@ class HomePage(tk.Frame):
                 if msg_id < 0 or msg_id in self._seen_message_ids:
                     continue
                 sender = msg.get("sender_username", "")
+                sender_device = msg.get("sender_device_id", "")
                 ciphertext = msg.get("ciphertext", "")
                 nonce = msg.get("nonce", "")
                 aad = msg.get("aad", "")
                 try:
                     plaintext, _ = self.controller.crypto.decrypt_message(sender, ciphertext, nonce, aad)
                 except Exception:
-                    plaintext = "[Unable to decrypt message]"
+                    aad_obj = self._decode_aad_obj(aad)
+                    sender_pem = self._find_identity_key_for_device(sender, sender_device)
+                    try:
+                        recovered = self.controller.crypto.establish_session_from_prekey_message(
+                            sender_username=sender,
+                            sender_device_id=sender_device,
+                            my_username=self.current_user,
+                            my_device_id=self.controller.api.device_id,
+                            sender_identity_key_pem=sender_pem,
+                            aad_obj=aad_obj,
+                        )
+                    except Exception:
+                        recovered = False
+                    if recovered:
+                        try:
+                            plaintext, _ = self.controller.crypto.decrypt_message(sender, ciphertext, nonce, aad)
+                        except Exception:
+                            plaintext = "[Unable to decrypt message]"
+                    else:
+                        plaintext = "[Unable to decrypt message]"
 
                 self._append_chat_line(sender, f"{sender}: {plaintext}")
                 self._seen_message_ids.add(msg_id)

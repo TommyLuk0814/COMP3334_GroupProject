@@ -3,7 +3,7 @@ import secrets
 import sqlite3
 import string
 import threading
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from config import DB_PATH
 
@@ -61,7 +61,29 @@ class DB:
             self._ensure_contact_code_column(cur)
             self._ensure_session_handshakes_table(cur)
             self._ensure_messages_table(cur)
+            self._ensure_prekeys_table(cur)
             self.conn.commit()
+
+    def _ensure_prekeys_table(self, cur: sqlite3.Cursor) -> None:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS prekeys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                prekey_id TEXT NOT NULL,
+                prekey_public TEXT NOT NULL,
+                prekey_signature TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                consumed_at TEXT,
+                UNIQUE(username, device_id, prekey_id),
+                FOREIGN KEY(username) REFERENCES users(username)
+            )
+            """
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_prekeys_available ON prekeys(username, device_id, consumed_at, created_at)"
+        )
 
     def _ensure_messages_table(self, cur: sqlite3.Cursor) -> None:
         cur.execute(
@@ -762,6 +784,78 @@ class DB:
                 (username,),
             ).fetchall()
             return rows
+
+    def upsert_prekeys(self, username: str, device_id: str, prekeys: List[Dict[str, str]]) -> int:
+        if not prekeys:
+            return 0
+        now = datetime.utcnow().isoformat()
+        uploaded = 0
+        with self.lock:
+            for entry in prekeys:
+                prekey_id = str(entry.get("prekey_id", "")).strip()
+                prekey_public = str(entry.get("prekey_public", "")).strip()
+                prekey_signature = str(entry.get("prekey_signature", "")).strip()
+                if not prekey_id or not prekey_public or not prekey_signature:
+                    continue
+                self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO prekeys(
+                        username,
+                        device_id,
+                        prekey_id,
+                        prekey_public,
+                        prekey_signature,
+                        created_at,
+                        consumed_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, NULL)
+                    """,
+                    (username, device_id, prekey_id, prekey_public, prekey_signature, now),
+                )
+                if self.conn.execute("SELECT changes()").fetchone()[0] > 0:
+                    uploaded += 1
+            self.conn.commit()
+        return uploaded
+
+    def claim_prekey(self, username: str, preferred_device_id: Optional[str] = None) -> Optional[sqlite3.Row]:
+        now = datetime.utcnow().isoformat()
+        with self.lock:
+            if preferred_device_id:
+                row = self.conn.execute(
+                    """
+                    SELECT id, username, device_id, prekey_id, prekey_public, prekey_signature
+                    FROM prekeys
+                    WHERE username = ?
+                      AND device_id = ?
+                      AND consumed_at IS NULL
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    """,
+                    (username, preferred_device_id),
+                ).fetchone()
+            else:
+                row = self.conn.execute(
+                    """
+                    SELECT id, username, device_id, prekey_id, prekey_public, prekey_signature
+                    FROM prekeys
+                    WHERE username = ?
+                      AND consumed_at IS NULL
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    """,
+                    (username,),
+                ).fetchone()
+            if not row:
+                return None
+            self.conn.execute(
+                "UPDATE prekeys SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL",
+                (now, int(row["id"])),
+            )
+            if self.conn.execute("SELECT changes()").fetchone()[0] == 0:
+                self.conn.commit()
+                return None
+            self.conn.commit()
+            return row
 
     def create_message(
         self,

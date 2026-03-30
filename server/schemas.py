@@ -211,3 +211,26 @@ class PollMessagesResponse(BaseModel):
 class MessageAckResponse(BaseModel):
     message_id: int
     status: str
+
+
+class PrekeyUploadEntry(BaseModel):
+    prekey_id: str = Field(min_length=8, max_length=128)
+    prekey_public: str = Field(min_length=16, max_length=4096)
+    prekey_signature: str = Field(min_length=16, max_length=4096)
+
+
+class UploadPrekeysRequest(BaseModel):
+    prekeys: List[PrekeyUploadEntry] = Field(default_factory=list, max_length=200)
+
+
+class UploadPrekeysResponse(BaseModel):
+    uploaded: int
+
+
+class ClaimPrekeyResponse(BaseModel):
+    username: str
+    device_id: str
+    identity_key_pem: str
+    prekey_id: str
+    prekey_public: str
+    prekey_signature: str
