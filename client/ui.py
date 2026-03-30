@@ -276,6 +276,9 @@ class HomePage(tk.Frame):
         self._outgoing_request_ids = []
         self._seen_message_ids = set()
         self._outgoing_counters = {}
+        self._chat_records_by_friend = {}
+        self._active_chat_friend = None
+        self._suspend_friend_select_event = False
         self._polling_active = False
         self._social_refresh_interval_ms = 3000
 
@@ -302,8 +305,9 @@ class HomePage(tk.Frame):
         body.add(right_panel, weight=3)
 
         ttk.Label(left_panel, text="Friend List").pack(anchor="w", pady=(0, 6))
-        self.friend_listbox = tk.Listbox(left_panel, height=12)
+        self.friend_listbox = tk.Listbox(left_panel, height=12, exportselection=False)
         self.friend_listbox.pack(fill="x", pady=(0, 8))
+        self.friend_listbox.bind("<<ListboxSelect>>", self.on_friend_selected)
 
         friend_action_row = ttk.Frame(left_panel)
         friend_action_row.pack(fill="x", pady=(0, 12))
@@ -334,19 +338,28 @@ class HomePage(tk.Frame):
         ttk.Button(blocked_action_row, text="Block", command=self.block_friend).pack(side="left", padx=(0, 6))
         ttk.Button(blocked_action_row, text="Unblock", command=self.unblock_user).pack(side="left")
 
-        ttk.Label(right_panel, text="Chat").pack(anchor="w", pady=(0, 6))
-        self.chat_text = tk.Text(right_panel, state="disabled", wrap="word")
+        self.chat_title_label = ttk.Label(right_panel, text="Select A Friend To Chat")
+        self.chat_title_label.pack(anchor="w", pady=(0, 6))
+
+        self.chat_content = ttk.Frame(right_panel)
+        self.chat_text = tk.Text(self.chat_content, state="disabled", wrap="word")
         self.chat_text.pack(fill="both", expand=True)
 
-        chat_input_row = ttk.Frame(right_panel)
+        chat_input_row = ttk.Frame(self.chat_content)
         chat_input_row.pack(fill="x", pady=(8, 0))
         self.chat_input = ttk.Entry(chat_input_row)
         self.chat_input.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(chat_input_row, text="Send", command=self.send_message).pack(side="right")
 
+        self.chat_content.pack_forget()
+
     def set_user(self, username):
         self.current_user = username
+        self._active_chat_friend = None
         self.user_label.config(text=f"Username: {username}")
+        self.chat_title_label.config(text="Select A Friend To Chat")
+        self.chat_content.pack_forget()
+        self._render_chat_records()
         self.refresh_social()
         if not self._polling_active:
             self._polling_active = True
@@ -362,11 +375,27 @@ class HomePage(tk.Frame):
                 text=f"Contact Code: {code}" if code else "Contact Code: —",
             )
 
-        self.friend_listbox.delete(0, tk.END)
-        ok_f, friends = api.list_friends()
-        if ok_f:
-            for f in friends:
-                self.friend_listbox.insert(tk.END, f.get("username", ""))
+        self._suspend_friend_select_event = True
+        try:
+            self.friend_listbox.delete(0, tk.END)
+            ok_f, friends = api.list_friends()
+            friends_usernames = []
+            if ok_f:
+                for f in friends:
+                    friend_name = f.get("username", "")
+                    friends_usernames.append(friend_name)
+                    self.friend_listbox.insert(tk.END, friend_name)
+
+            if self._active_chat_friend and self._active_chat_friend in friends_usernames:
+                idx = friends_usernames.index(self._active_chat_friend)
+                self.friend_listbox.selection_clear(0, tk.END)
+                self.friend_listbox.selection_set(idx)
+                self.friend_listbox.activate(idx)
+                self.friend_listbox.see(idx)
+            elif self._active_chat_friend and self._active_chat_friend not in friends_usernames:
+                self._set_active_chat_friend(None)
+        finally:
+            self._suspend_friend_select_event = False
 
         self.outgoing_listbox.delete(0, tk.END)
         self._outgoing_request_ids.clear()
@@ -392,8 +421,53 @@ class HomePage(tk.Frame):
 
     def logout(self):
         self._polling_active = False
+        self._active_chat_friend = None
+        self._chat_records_by_friend = {}
+        self.chat_title_label.config(text="Select A Friend To Chat")
+        self.chat_content.pack_forget()
+        self._render_chat_records()
         self.controller.api.token = None
         self.controller.show_page("LoginPage")
+
+    def _append_chat_line(self, friend, text):
+        if not friend:
+            return
+        self._chat_records_by_friend.setdefault(friend, []).append(text)
+        self._render_chat_records()
+
+    def _render_chat_records(self):
+        self.chat_text.configure(state="normal")
+        self.chat_text.delete("1.0", tk.END)
+        if not self._active_chat_friend:
+            self.chat_text.configure(state="disabled")
+            return
+        for line in self._chat_records_by_friend.get(self._active_chat_friend, []):
+            self.chat_text.insert(tk.END, f"{line}\n")
+        self.chat_text.see(tk.END)
+        self.chat_text.configure(state="disabled")
+
+    def _set_active_chat_friend(self, friend):
+        self._active_chat_friend = friend
+        if friend:
+            self.chat_title_label.config(text=f"Chatting with {friend}")
+            if not self.chat_content.winfo_ismapped():
+                self.chat_content.pack(fill="both", expand=True)
+        else:
+            self.chat_title_label.config(text="Select A Friend To Chat")
+            if self.chat_content.winfo_ismapped():
+                self.chat_content.pack_forget()
+        self._render_chat_records()
+
+    def on_friend_selected(self, _event=None):
+        if self._suspend_friend_select_event:
+            return
+        sel = self.friend_listbox.curselection()
+        if not sel:
+            self._set_active_chat_friend(None)
+            return
+        idx = int(sel[0])
+        friend = self.friend_listbox.get(idx).strip() or None
+        self._set_active_chat_friend(friend)
 
     def _social_refresh_loop(self):
         if not self._polling_active:
@@ -536,10 +610,8 @@ class HomePage(tk.Frame):
             messagebox.showerror("Error", str(res))
 
     def _append_system_message(self, text):
-        self.chat_text.configure(state="normal")
-        self.chat_text.insert(tk.END, f"[System] {text}\n")
-        self.chat_text.see(tk.END)
-        self.chat_text.configure(state="disabled")
+        if self._active_chat_friend:
+            self._append_chat_line(self._active_chat_friend, f"[System] {text}")
 
     def _find_identity_key_for_device(self, username, device_id):
         keys = self.controller.api.get_public_key(username)
@@ -650,8 +722,9 @@ class HomePage(tk.Frame):
         if not text:
             return
 
-        peer = self._selected_friend_username()
+        peer = self._active_chat_friend
         if not peer:
+            messagebox.showwarning("Select friend", "Choose someone in the friend list first.")
             return
         if not self.controller.crypto.has_session_with(peer):
             started = self._initiate_session_with_peer(peer)
@@ -693,10 +766,7 @@ class HomePage(tk.Frame):
             messagebox.showerror("Send failed", str(result))
             return
 
-        self.chat_text.configure(state="normal")
-        self.chat_text.insert(tk.END, f"Me -> {peer}: {text}\n")
-        self.chat_text.see(tk.END)
-        self.chat_text.configure(state="disabled")
+        self._append_chat_line(peer, f"{self.current_user}(You): {text}")
         self.chat_input.delete(0, tk.END)
 
     def _poll_messages_loop(self):
@@ -719,10 +789,7 @@ class HomePage(tk.Frame):
                 except Exception:
                     plaintext = "[Unable to decrypt message]"
 
-                self.chat_text.configure(state="normal")
-                self.chat_text.insert(tk.END, f"{sender}: {plaintext}\n")
-                self.chat_text.see(tk.END)
-                self.chat_text.configure(state="disabled")
+                self._append_chat_line(sender, f"{sender}: {plaintext}")
                 self._seen_message_ids.add(msg_id)
                 self.controller.api.ack_message(msg_id)
 
