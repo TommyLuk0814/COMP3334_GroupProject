@@ -17,7 +17,7 @@ class SecureIMApp(tk.Tk):
         super().__init__()
         self.title("IM App")
         self.geometry("1280x840")
-        self.resizable(False, False)
+        self.resizable(True, True)
 
         style = ttk.Style(self)
         style.configure("TLabel", font=("Arial", 12))
@@ -318,6 +318,9 @@ class HomePage(tk.Frame):
         friend_action_row.pack(fill="x", pady=(0, 12))
         ttk.Button(friend_action_row, text="Add Friend", command=self.add_friend).pack(side="left", padx=(0, 6))
         ttk.Button(friend_action_row, text="Remove Friend", command=self.remove_friend).pack(side="left", padx=(0, 6))
+        ttk.Button(friend_action_row, text="Keys / Fingerprint", command=self.show_contact_fingerprints).pack(
+            side="left", padx=(0, 6)
+        )
 
         ttk.Label(left_panel, text="Pending Requests").pack(anchor="w", pady=(0, 4))
         self.outgoing_listbox = tk.Listbox(left_panel, height=6)
@@ -513,6 +516,83 @@ class HomePage(tk.Frame):
             self.refresh_social()
         else:
             messagebox.showerror("Error", str(res))
+
+    def show_contact_fingerprints(self):
+        """
+        Show a dialog with the identity key fingerprints for the selected friend,
+        and allow the user to locally mark the current keys as 'verified'.
+        """
+        peer = self._selected_friend_username()
+        if not peer:
+            return
+
+        api = self.controller.api
+        keys = api.get_public_key(peer)
+        if not keys:
+            messagebox.showinfo("No keys", f"{peer} has no published identity keys yet.")
+            return
+
+        verified = api.get_verified_fingerprints(peer)
+
+        dialog = tk.Toplevel(self)
+        dialog.title(f"Security for {peer}")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        outer = ttk.Frame(dialog, padding=10)
+        outer.pack(fill="both", expand=True)
+
+        ttk.Label(
+            outer,
+            text=(
+                "Compare these fingerprints with your contact over a trusted channel.\n"
+                "When you have verified them, you can mark the current keys as verified."
+            ),
+            justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        text = tk.Text(outer, width=80, height=12, wrap="none")
+        text.pack(fill="both", expand=True)
+        text.configure(state="normal")
+
+        current_fps = []
+        for entry in keys:
+            device_id = str(entry.get("device_id", ""))
+            fingerprint = str(entry.get("fingerprint", ""))
+            if not fingerprint:
+                continue
+            current_fps.append(fingerprint)
+            is_verified = "YES" if fingerprint in verified else "NO"
+            text.insert(
+                tk.END,
+                f"Device: {device_id or '-'}\n"
+                f"Fingerprint: {fingerprint}\n"
+                f"Locally marked verified: {is_verified}\n"
+                "----------------------------------------\n",
+            )
+
+        text.configure(state="disabled")
+
+        btn_row = ttk.Frame(outer)
+        btn_row.pack(fill="x", pady=(8, 0))
+
+        def on_mark_verified():
+            if not current_fps:
+                return
+            if not messagebox.askyesno(
+                "Mark verified",
+                "Mark all of the currently displayed fingerprints as VERIFIED for this contact?",
+                parent=dialog,
+            ):
+                return
+            api.set_verified_fingerprints(peer, current_fps)
+            messagebox.showinfo("Saved", "Verification state saved locally for this contact.", parent=dialog)
+            dialog.destroy()
+
+        ttk.Button(btn_row, text="Mark current keys as verified", command=on_mark_verified).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(btn_row, text="Close", command=dialog.destroy).pack(side="right")
 
     def block_friend(self):
         entered = simpledialog.askstring(

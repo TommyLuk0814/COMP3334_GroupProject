@@ -13,6 +13,7 @@ class IMClientAPI:
         self.current_user = None
         self.device_id = self._load_or_create_device_id()
         self.known_keys_path = Path(__file__).resolve().parent / ".known_contact_keys.json"
+        self.verified_keys_path = Path(__file__).resolve().parent / ".verified_contact_keys.json"
 
     def _load_or_create_device_id(self):
         device_path = Path(__file__).resolve().parent / ".device_id"
@@ -188,6 +189,40 @@ class IMClientAPI:
 
     def _save_known_keys(self, data):
         self.known_keys_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def _load_verified_keys(self):
+        if not self.verified_keys_path.exists():
+            return {}
+        try:
+            data = json.loads(self.verified_keys_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+            return {}
+        except Exception:
+            return {}
+
+    def _save_verified_keys(self, data):
+        self.verified_keys_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def get_verified_fingerprints(self, username):
+        """
+        Return a set of fingerprints for the given contact that the user
+        has locally marked as 'verified'.
+        """
+        store = self._load_verified_keys()
+        entries = store.get(str(username).strip().lower(), [])
+        if not isinstance(entries, list):
+            return set()
+        return set(str(fp) for fp in entries)
+
+    def set_verified_fingerprints(self, username, fingerprints):
+        """
+        Persist the set of fingerprints the user considers verified for a contact.
+        """
+        key = str(username).strip().lower()
+        store = self._load_verified_keys()
+        store[key] = sorted(set(str(fp) for fp in fingerprints))
+        self._save_verified_keys(store)
 
     def _auth_headers(self):
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
