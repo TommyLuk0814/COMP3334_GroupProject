@@ -716,6 +716,9 @@ class HomePage(tk.Frame):
             return {}
         return {}
 
+    def _record_received_message(self, sender, sender_device, sender_counter):
+        self.controller.api.is_replay_message(sender, sender_device, sender_counter)
+
     def _initiate_session_with_peer(self, peer):
         if self.controller.crypto.has_session_with(peer):
             return True
@@ -911,10 +914,17 @@ class HomePage(tk.Frame):
                 ciphertext = msg.get("ciphertext", "")
                 nonce = msg.get("nonce", "")
                 aad = msg.get("aad", "")
+                aad_obj = self._decode_aad_obj(aad)
+                sender_counter = aad_obj.get("sender_counter")
+
+                if self.controller.api.is_replay_message(sender, sender_device, sender_counter):
+                    self._seen_message_ids.add(msg_id)
+                    self.controller.api.ack_message(msg_id)
+                    continue
+
                 try:
                     plaintext, _ = self.controller.crypto.decrypt_message(sender, ciphertext, nonce, aad)
                 except Exception:
-                    aad_obj = self._decode_aad_obj(aad)
                     sender_pem = self._find_identity_key_for_device(sender, sender_device)
                     try:
                         recovered = self.controller.crypto.establish_session_from_prekey_message(
@@ -935,6 +945,7 @@ class HomePage(tk.Frame):
                     else:
                         plaintext = "[Unable to decrypt message]"
 
+                self._record_received_message(sender, sender_device, sender_counter)
                 self._append_chat_line(sender, f"{sender}: {plaintext}")
                 self._seen_message_ids.add(msg_id)
                 self.controller.api.ack_message(msg_id)

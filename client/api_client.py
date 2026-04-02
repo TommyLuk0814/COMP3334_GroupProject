@@ -17,6 +17,7 @@ class IMClientAPI:
         self.device_id = self._load_or_create_device_id()
         self.known_keys_path = self.profile_dir / ".known_contact_keys.json"
         self.verified_keys_path = self.profile_dir / ".verified_contact_keys.json"
+        self.replay_state_path = self.profile_dir / ".message_replay_state.json"
 
     def _normalize_profile_name(self, profile_name):
         raw = (str(profile_name or "default")).strip().lower()
@@ -231,6 +232,59 @@ class IMClientAPI:
         store = self._load_verified_keys()
         store[key] = sorted(set(str(fp) for fp in fingerprints))
         self._save_verified_keys(store)
+
+    def _load_replay_state(self):
+        if not self.replay_state_path.exists():
+            return {"peers": {}}
+        try:
+            data = json.loads(self.replay_state_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                peers = data.get("peers", {})
+                if isinstance(peers, dict):
+                    return {"peers": peers}
+            return {"peers": {}}
+        except Exception:
+            return {"peers": {}}
+
+    def _save_replay_state(self, data):
+        self.replay_state_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def is_replay_message(self, sender_username, sender_device_id, sender_counter, window_size=256):
+        key = f"{str(sender_username).strip().lower()}|{str(sender_device_id).strip()}"
+        try:
+            counter = int(sender_counter)
+        except Exception:
+            return False
+
+        state = self._load_replay_state()
+        peers = state.setdefault("peers", {})
+        entry = peers.get(key, {})
+        recent = entry.get("recent_counters", [])
+        if not isinstance(recent, list):
+            recent = []
+
+        normalized_recent = []
+        seen = set()
+        for value in recent:
+            try:
+                number = int(value)
+            except Exception:
+                continue
+            if number in seen:
+                continue
+            seen.add(number)
+            normalized_recent.append(number)
+
+        if counter in seen:
+            return True
+
+        normalized_recent.append(counter)
+        if len(normalized_recent) > window_size:
+            normalized_recent = normalized_recent[-window_size:]
+
+        peers[key] = {"recent_counters": normalized_recent}
+        self._save_replay_state(state)
+        return False
 
     def _auth_headers(self):
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}

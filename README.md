@@ -11,6 +11,21 @@
     - `py client/main.py --profile user1`
     - `py client/main.py --profile user2`
 
+## Replay Test Tool
+Use this helper to duplicate an existing message row in `server/secure_im.db` and verify R9 / R22 replay handling.
+
+1. Duplicate the latest message:
+    - `py tools/duplicate_last_message.py`
+2. Duplicate a specific message id:
+    - `py tools/duplicate_last_message.py --message-id 123`
+
+Test flow:
+1. Send a normal message from one client to another.
+2. Confirm the receiver shows it once.
+3. Run the tool to duplicate the same ciphertext row.
+4. Poll again on the receiver.
+5. The duplicated message should be ignored by the replay window and should not render as a new message.
+
 Notes:
 - Use different `--profile` values when running multiple local clients on one machine.
 - Each profile has isolated local data (identity keys, device ID, known contact keys, and prekeys).
@@ -24,7 +39,7 @@ Notes:
 - [ ] R6 Key change detection (partial: key change detection helper exists, full warning/block UI flow pending)
 - [x] R7 Secure session establishment (implemented as signed X25519 handshake plus signed one-time prekey flow for offline first-message bootstrap)
 - [x] R8 Message encryption and authentication
-- [ ] R9 Replay protection / de-duplication
+- [x] R9 Replay protection / de-duplication (receiver rejects duplicate sender_counter values per sender device within a persisted local replay window)
 - [ ] R10 TTL / expiration policy
 - [ ] R11 Client deletion behavior
 - [ ] R12 Server storage behavior (best-effort)
@@ -37,7 +52,7 @@ Notes:
 - [ ] R19 Metadata disclosure statement
 - [x] R20 Offline ciphertext queue (including first-message support via prekey claim when recipient is offline)
 - [ ] R21 Retention and cleanup
-- [ ] R22 Duplicate/replay robustness
+- [x] R22 Duplicate/replay robustness (client persists a per-sender-device replay window and ACKs duplicate ciphertexts without re-rendering them)
 - [ ] R23 Conversation list
 - [ ] R24 Unread counters
 - [ ] R25 Paging / incremental loading
