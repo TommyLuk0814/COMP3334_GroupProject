@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
+from datetime import datetime, timedelta, timezone
 import time
 import base64
 import json
@@ -287,12 +288,17 @@ class HomePage(tk.Frame):
         self._incoming_request_ids = []
         self._outgoing_request_ids = []
         self._seen_message_ids = set()
-        self._outgoing_counters = {}
         self._chat_records_by_friend = {}
         self._active_chat_friend = None
         self._suspend_friend_select_event = False
         self._polling_active = False
         self._social_refresh_interval_ms = 3000
+        self._ttl_units = [
+            ("Second", 1),
+            ("Minute", 60),
+            ("Hour", 3600),
+            ("Day", 86400),
+        ]
 
         root = ttk.Frame(self, padding=10)
         root.pack(fill="both", expand=True)
@@ -364,6 +370,22 @@ class HomePage(tk.Frame):
         chat_input_row.pack(fill="x", pady=(8, 0))
         self.chat_input = ttk.Entry(chat_input_row)
         self.chat_input.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        ttl_label = ttk.Label(chat_input_row, text="Destruct after")
+        ttl_label.pack(side="left", padx=(0, 8))
+        self.ttl_value_var = tk.StringVar(value="30")
+        self.ttl_value_entry = ttk.Entry(chat_input_row, textvariable=self.ttl_value_var, width=8)
+        self.ttl_value_entry.pack(side="left", padx=(0, 8))
+        self.ttl_unit_var = tk.StringVar(value=self._ttl_units[0][0])
+        self.ttl_unit_selector = ttk.Combobox(
+            chat_input_row,
+            textvariable=self.ttl_unit_var,
+            values=[label for label, _ in self._ttl_units],
+            state="readonly",
+            width=10,
+        )
+        self.ttl_unit_selector.pack(side="left", padx=(0, 8))
+        self.ttl_unit_selector.current(0)
         ttk.Button(chat_input_row, text="Send", command=self.send_message).pack(side="right")
 
         self.chat_content.pack_forget()
@@ -444,20 +466,78 @@ class HomePage(tk.Frame):
         self.controller.api.token = None
         self.controller.show_page("LoginPage")
 
-    def _append_chat_line(self, friend, text):
+    def _selected_ttl_seconds(self):
+        raw_value = self.ttl_value_var.get().strip()
+        if not raw_value:
+            return None
+        try:
+            amount = int(raw_value)
+        except ValueError:
+            return None
+        if amount <= 0:
+            return None
+        selected_label = self.ttl_unit_var.get()
+        for label, seconds in self._ttl_units:
+            if label == selected_label:
+                return amount * seconds
+        return None
+
+    def _prune_expired_chat_records(self):
+        now_ts = time.time()
+        for friend, records in list(self._chat_records_by_friend.items()):
+            kept_records = []
+            for record in records:
+                expires_at_ts = record.get("expires_at_ts") if isinstance(record, dict) else None
+                if expires_at_ts and expires_at_ts <= now_ts:
+                    continue
+                kept_records.append(record)
+            if kept_records:
+                self._chat_records_by_friend[friend] = kept_records
+            else:
+                self._chat_records_by_friend.pop(friend, None)
+
+    def _to_expiry_timestamp(self, expires_at):
+        if not expires_at:
+            return None
+        if isinstance(expires_at, (int, float)):
+            return float(expires_at)
+        if isinstance(expires_at, datetime):
+            dt = expires_at
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return float(dt.timestamp())
+        try:
+            dt = datetime.fromisoformat(str(expires_at))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return float(dt.timestamp())
+        except Exception:
+            return None
+
+    def _append_chat_line(self, friend, text, expires_at=None):
         if not friend:
             return
-        self._chat_records_by_friend.setdefault(friend, []).append(text)
+        self._chat_records_by_friend.setdefault(friend, []).append(
+            {
+                "text": text,
+                "expires_at_ts": self._to_expiry_timestamp(expires_at),
+            }
+        )
+        self._prune_expired_chat_records()
         self._render_chat_records()
 
     def _render_chat_records(self):
+        self._prune_expired_chat_records()
         self.chat_text.configure(state="normal")
         self.chat_text.delete("1.0", tk.END)
         if not self._active_chat_friend:
             self.chat_text.configure(state="disabled")
             return
         for line in self._chat_records_by_friend.get(self._active_chat_friend, []):
-            self.chat_text.insert(tk.END, f"{line}\n")
+            if isinstance(line, dict):
+                self.chat_text.insert(tk.END, f"{line.get('text', '')}\n")
+            else:
+                self.chat_text.insert(tk.END, f"{line}\n")
         self.chat_text.see(tk.END)
         self.chat_text.configure(state="disabled")
 
@@ -831,13 +911,18 @@ class HomePage(tk.Frame):
         if not peer:
             messagebox.showwarning("Select friend", "Choose someone in the friend list first.")
             return
-        counter = int(self._outgoing_counters.get(peer, 0)) + 1
-        self._outgoing_counters[peer] = counter
+        counter = int(self.controller.api.next_sender_counter())
+        ttl_seconds = self._selected_ttl_seconds() 
+        if ttl_seconds is None:
+            messagebox.showerror("Invalid TTL", "Please enter the self-destruct timer for the message.")
+            return
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds) if ttl_seconds > 0 else None
         aad = {
             "sender": self.current_user,
             "recipient": peer,
             "sender_counter": counter,
             "ts": int(time.time()),
+            "ttl_seconds": ttl_seconds,
         }
         encrypted = None
 
@@ -895,66 +980,71 @@ class HomePage(tk.Frame):
             nonce=encrypted["nonce"],
             aad=encrypted["aad"],
             sender_counter=counter,
-            expires_in_seconds=0,
+            expires_in_seconds=ttl_seconds,
         )
         if not ok:
             messagebox.showerror("Send failed", str(result))
             return
 
-        self._append_chat_line(peer, f"{self.current_user}(You): {text}")
+        self._append_chat_line(peer, f"{self.current_user}(You): {text}", expires_at=expires_at)
         self.chat_input.delete(0, tk.END)
 
     def _poll_messages_loop(self):
         if not self._polling_active:
             return
 
-        self.sync_sessions()
-        ok, result = self.controller.api.get_messages()
-        if ok:
-            for msg in result:
-                msg_id = int(msg.get("id", -1))
-                if msg_id < 0 or msg_id in self._seen_message_ids:
-                    continue
-                sender = msg.get("sender_username", "")
-                sender_device = msg.get("sender_device_id", "")
-                ciphertext = msg.get("ciphertext", "")
-                nonce = msg.get("nonce", "")
-                aad = msg.get("aad", "")
-                aad_obj = self._decode_aad_obj(aad)
-                sender_counter = aad_obj.get("sender_counter")
+        try:
+            self.sync_sessions()
+            self._prune_expired_chat_records()
+            self._render_chat_records()
+            ok, result = self.controller.api.get_messages()
+            if ok:
+                for msg in result:
+                    msg_id = int(msg.get("id", -1))
+                    if msg_id < 0 or msg_id in self._seen_message_ids:
+                        continue
+                    sender = msg.get("sender_username", "")
+                    sender_device = msg.get("sender_device_id", "")
+                    ciphertext = msg.get("ciphertext", "")
+                    nonce = msg.get("nonce", "")
+                    aad = msg.get("aad", "")
+                    aad_obj = self._decode_aad_obj(aad)
+                    sender_counter = aad_obj.get("sender_counter")
 
-                if self.controller.api.is_replay_message(sender, sender_device, sender_counter):
+                    if self.controller.api.is_replay_message(sender, sender_device, sender_counter):
+                        self._seen_message_ids.add(msg_id)
+                        self.controller.api.ack_message(msg_id)
+                        continue
+
+                    try:
+                        plaintext, _ = self.controller.crypto.decrypt_message(sender, ciphertext, nonce, aad)
+                    except Exception:
+                        sender_pem = self._find_identity_key_for_device(sender, sender_device)
+                        try:
+                            recovered = self.controller.crypto.establish_session_from_prekey_message(
+                                sender_username=sender,
+                                sender_device_id=sender_device,
+                                my_username=self.current_user,
+                                my_device_id=self.controller.api.device_id,
+                                sender_identity_key_pem=sender_pem,
+                                aad_obj=aad_obj,
+                            )
+                        except Exception:
+                            recovered = False
+                        if recovered:
+                            try:
+                                plaintext, _ = self.controller.crypto.decrypt_message(sender, ciphertext, nonce, aad)
+                            except Exception:
+                                plaintext = "[Unable to decrypt message]"
+                        else:
+                            plaintext = "[Unable to decrypt message]"
+
+                    self._record_received_message(sender, sender_device, sender_counter)
+                    self._append_chat_line(sender, f"{sender}: {plaintext}", expires_at=msg.get("expires_at"))
                     self._seen_message_ids.add(msg_id)
                     self.controller.api.ack_message(msg_id)
-                    continue
-
-                try:
-                    plaintext, _ = self.controller.crypto.decrypt_message(sender, ciphertext, nonce, aad)
-                except Exception:
-                    sender_pem = self._find_identity_key_for_device(sender, sender_device)
-                    try:
-                        recovered = self.controller.crypto.establish_session_from_prekey_message(
-                            sender_username=sender,
-                            sender_device_id=sender_device,
-                            my_username=self.current_user,
-                            my_device_id=self.controller.api.device_id,
-                            sender_identity_key_pem=sender_pem,
-                            aad_obj=aad_obj,
-                        )
-                    except Exception:
-                        recovered = False
-                    if recovered:
-                        try:
-                            plaintext, _ = self.controller.crypto.decrypt_message(sender, ciphertext, nonce, aad)
-                        except Exception:
-                            plaintext = "[Unable to decrypt message]"
-                    else:
-                        plaintext = "[Unable to decrypt message]"
-
-                self._record_received_message(sender, sender_device, sender_counter)
-                self._append_chat_line(sender, f"{sender}: {plaintext}")
-                self._seen_message_ids.add(msg_id)
-                self.controller.api.ack_message(msg_id)
+        except Exception as e:
+            self._append_system_message(f"Receive loop recovered from error: {e}")
 
         self.after(1500, self._poll_messages_loop)
 

@@ -40,9 +40,9 @@ Notes:
 - [x] R7 Secure session establishment (implemented as signed X25519 handshake plus signed one-time prekey flow for offline first-message bootstrap)
 - [x] R8 Message encryption and authentication
 - [x] R9 Replay protection / de-duplication (receiver rejects duplicate sender_counter values per sender device within a persisted local replay window)
-- [ ] R10 TTL / expiration policy
-- [ ] R11 Client deletion behavior
-- [ ] R12 Server storage behavior (best-effort)
+- [x] R10 TTL / expiration policy (TTL choices are included in authenticated message metadata)
+- [x] R11 Client deletion behavior (expired chat records are pruned from the UI)
+- [x] R12 Server storage behavior (best-effort) (expired queued ciphertext is deleted from SQLite on access)
 - [x] R13 Friend request workflow
 - [x] R14 Request lifecycle
 - [ ] R15 Blocking / removing (partial: requests and new outbound messages are blocked; queued-before-block edge handling pending)
@@ -51,7 +51,7 @@ Notes:
 - [ ] R18 Define "Delivered" semantics (partial: delivered currently mapped to recipient ACK endpoint)
 - [ ] R19 Metadata disclosure statement
 - [x] R20 Offline ciphertext queue (including first-message support via prekey claim when recipient is offline)
-- [ ] R21 Retention and cleanup
+- [x] R21 Retention and cleanup (messages are retained until expiry, then cleaned up best-effort on the client and server)
 - [x] R22 Duplicate/replay robustness (client persists a per-sender-device replay window and ACKs duplicate ciphertexts without re-rendering them)
 - [ ] R23 Conversation list
 - [ ] R24 Unread counters

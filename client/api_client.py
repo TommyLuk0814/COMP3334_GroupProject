@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import time
 import uuid
 
 import requests
@@ -18,6 +19,7 @@ class IMClientAPI:
         self.known_keys_path = self.profile_dir / ".known_contact_keys.json"
         self.verified_keys_path = self.profile_dir / ".verified_contact_keys.json"
         self.replay_state_path = self.profile_dir / ".message_replay_state.json"
+        self.sender_counter_state_path = self.profile_dir / ".sender_counter_state.json"
 
     def _normalize_profile_name(self, profile_name):
         raw = (str(profile_name or "default")).strip().lower()
@@ -248,6 +250,32 @@ class IMClientAPI:
 
     def _save_replay_state(self, data):
         self.replay_state_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def _load_sender_counter_state(self):
+        if not self.sender_counter_state_path.exists():
+            return {"last_counter": 0}
+        try:
+            data = json.loads(self.sender_counter_state_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                last_counter = int(data.get("last_counter", 0))
+                if last_counter < 0:
+                    last_counter = 0
+                return {"last_counter": last_counter}
+            return {"last_counter": 0}
+        except Exception:
+            return {"last_counter": 0}
+
+    def _save_sender_counter_state(self, data):
+        self.sender_counter_state_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def next_sender_counter(self):
+        state = self._load_sender_counter_state()
+        last_counter = int(state.get("last_counter", 0))
+        now_counter = int(time.time() * 1000)
+        counter = now_counter if now_counter > last_counter else (last_counter + 1)
+        state["last_counter"] = counter
+        self._save_sender_counter_state(state)
+        return counter
 
     def is_replay_message(self, sender_username, sender_device_id, sender_counter, window_size=256):
         key = f"{str(sender_username).strip().lower()}|{str(sender_device_id).strip()}"

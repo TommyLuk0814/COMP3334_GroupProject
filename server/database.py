@@ -108,6 +108,7 @@ class DB:
         )
         cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_recipient_pending ON messages(recipient_user, delivered_at)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_expires_at ON messages(expires_at)")
 
     def _ensure_session_handshakes_table(self, cur: sqlite3.Cursor) -> None:
         cur.execute(
@@ -749,6 +750,17 @@ class DB:
             )
             self.conn.commit()
 
+    def cleanup_expired_messages(self) -> None:
+        with self.lock:
+            self._cleanup_expired_messages_locked(datetime.utcnow().isoformat())
+            self.conn.commit()
+
+    def _cleanup_expired_messages_locked(self, now: str) -> None:
+        self.conn.execute(
+            "DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            (now,),
+        )
+
     def upsert_identity_key(
         self,
         username: str,
@@ -871,6 +883,7 @@ class DB:
     ) -> Tuple[int, str]:
         created_at = datetime.utcnow().isoformat()
         with self.lock:
+            self._cleanup_expired_messages_locked(created_at)
             self.conn.execute(
                 """
                 INSERT INTO messages(
@@ -913,6 +926,7 @@ class DB:
     ) -> List[sqlite3.Row]:
         now = datetime.utcnow().isoformat()
         with self.lock:
+            self._cleanup_expired_messages_locked(now)
             return self.conn.execute(
                 """
                 SELECT
@@ -941,6 +955,7 @@ class DB:
     def ack_message_delivery(self, message_id: int, acting_user: str, acting_device_id: str) -> str:
         now = datetime.utcnow().isoformat()
         with self.lock:
+            self._cleanup_expired_messages_locked(now)
             row = self.conn.execute(
                 """
                 SELECT id, recipient_user, recipient_device_id, delivered_at
