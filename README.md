@@ -45,7 +45,7 @@ Notes:
 - [x] R12 Server storage behavior (best-effort) (expired queued ciphertext is deleted from SQLite on access)
 - [x] R13 Friend request workflow
 - [x] R14 Request lifecycle
-- [ ] R15 Blocking / removing (partial: requests and new outbound messages are blocked; queued-before-block edge handling pending)
+- [x] R15 Blocking / removing (requests and new outbound messages are blocked; queued-before-block ciphertext is dropped and poll excludes blocked pairs)
 - [x] R16 Default anti-spam control
 - [ ] R17 Minimum delivery states (partial: server returns sent/delivered states, sender-side delivered status UI is pending)
 - [ ] R18 Define "Delivered" semantics (partial: delivered currently mapped to recipient ACK endpoint)

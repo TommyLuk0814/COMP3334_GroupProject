@@ -266,6 +266,18 @@ class DB:
             """,
             (blocker, blocked, now),
         )
+        # Drop queued ciphertext in both directions once either side blocks the other.
+        self.conn.execute(
+            """
+            DELETE FROM messages
+            WHERE delivered_at IS NULL
+              AND (
+                    (sender_user = ? AND recipient_user = ?)
+                 OR (sender_user = ? AND recipient_user = ?)
+              )
+            """,
+            (blocker, blocked, blocked, blocker),
+        )
         self.conn.commit()
         return "ok"
 
@@ -946,6 +958,12 @@ class DB:
                   AND delivered_at IS NULL
                   AND (recipient_device_id IS NULL OR recipient_device_id = ?)
                   AND (expires_at IS NULL OR expires_at > ?)
+                                    AND NOT EXISTS (
+                                                SELECT 1
+                                                FROM blocks b
+                                                WHERE (b.blocker = messages.sender_user AND b.blocked = messages.recipient_user)
+                                                     OR (b.blocker = messages.recipient_user AND b.blocked = messages.sender_user)
+                                    )
                 ORDER BY created_at ASC
                 LIMIT ?
                 """,
