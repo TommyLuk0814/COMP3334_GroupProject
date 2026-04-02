@@ -8,15 +8,23 @@ API_BASE_URL = "http://127.0.0.1:8000"
 
 
 class IMClientAPI:
-    def __init__(self):
+    def __init__(self, profile_name="default"):
         self.token = None
         self.current_user = None
+        self.profile_name = self._normalize_profile_name(profile_name)
+        self.profile_dir = Path(__file__).resolve().parent / ".client_profiles" / self.profile_name
+        self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.device_id = self._load_or_create_device_id()
-        self.known_keys_path = Path(__file__).resolve().parent / ".known_contact_keys.json"
-        self.verified_keys_path = Path(__file__).resolve().parent / ".verified_contact_keys.json"
+        self.known_keys_path = self.profile_dir / ".known_contact_keys.json"
+        self.verified_keys_path = self.profile_dir / ".verified_contact_keys.json"
+
+    def _normalize_profile_name(self, profile_name):
+        raw = (str(profile_name or "default")).strip().lower()
+        sanitized = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in raw)
+        return sanitized or "default"
 
     def _load_or_create_device_id(self):
-        device_path = Path(__file__).resolve().parent / ".device_id"
+        device_path = self.profile_dir / ".device_id"
         if device_path.exists():
             value = device_path.read_text(encoding="utf-8").strip()
             if value:

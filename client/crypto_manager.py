@@ -14,19 +14,25 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X
 
 
 class CryptoManager:
-    def __init__(self):
+    def __init__(self, profile_name="default"):
         self.private_key = None
         self.public_key = None
         self.session_keys = {}
         self.pending_initiator_keys: Dict[int, Tuple[str, str, X25519PrivateKey]] = {}
         self.finalized_handshakes = set()
         self.local_prekeys: Dict[str, Dict[str, str]] = {}
-        self.identity_dir = Path(__file__).resolve().parent / ".identity"
+        self.profile_name = self._normalize_profile_name(profile_name)
+        self.identity_dir = Path(__file__).resolve().parent / ".identity_profiles" / self.profile_name
         self.private_key_path = self.identity_dir / "ed25519_private.pem"
         self.public_key_path = self.identity_dir / "ed25519_public.pem"
         self.prekey_store_path = self.identity_dir / "prekeys_private.json"
         self._load_or_create_identity_keypair()
         self._load_local_prekeys()
+
+    def _normalize_profile_name(self, profile_name):
+        raw = (str(profile_name or "default")).strip().lower()
+        sanitized = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in raw)
+        return sanitized or "default"
 
     def _load_local_prekeys(self):
         if not self.prekey_store_path.exists():

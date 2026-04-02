@@ -8,7 +8,12 @@
 1. Start backend:
     - `py server/server.py`
 2. Start client (new terminal):
-    - `py client/main.py`
+    - `py client/main.py --profile user1`
+    - `py client/main.py --profile user2`
+
+Notes:
+- Use different `--profile` values when running multiple local clients on one machine.
+- Each profile has isolated local data (identity keys, device ID, known contact keys, and prekeys).
 
 ## Implementation Status Checklist
 - [x] R1 Registration
@@ -36,20 +41,6 @@
 - [ ] R23 Conversation list
 - [ ] R24 Unread counters
 - [ ] R25 Paging / incremental loading
-
-## Checklist Evidence Map
-- R1-R3: `server/server.py`, `server/security.py`, `server/rate_limiter.py`, `server/database.py`, `client/api_client.py`, `client/ui.py`
-- R4: `client/crypto_manager.py`, `server/server.py` (`/keys`), `server/database.py` (`identity_keys`)
-- R5 (partial): `server/server.py` (`/keys/{username}/fingerprint`, `/keys/{username}`), `server/security.py` (`fingerprint_for_pem`)
-- R6 (partial): `client/api_client.py` (`detect_key_change`)
-- R7: `server/server.py` (`/sessions/*`, `/prekeys/*`), `server/database.py` (`session_handshakes`, `prekeys`), `client/crypto_manager.py` (X25519 handshake + prekey verify/derive), `client/ui.py` (auto handshake + prekey bootstrap flow)
-- R8: `client/crypto_manager.py` (AES-GCM encrypt/decrypt with AAD), `server/server.py` (`/messages/send`, `/messages/poll`), `client/ui.py` (encrypted send + decrypt display)
-- R13-R14: `server/server.py` (`/friends/request`, `/friends/requests/*`, `/friends`), `server/database.py` (`friend_requests`, `friendships`), `client/api_client.py`, `client/ui.py`
-- R15 (partial): `server/server.py` (`/friends/remove`, `/friends/block`, `/friends/unblock`), `server/database.py` (`blocks`), `client/ui.py` (Block/Unblock)
-- R16: `server/server.py` (`/messages/send` checks `are_friends`)
-- R17 (partial): `server/server.py` (send returns `sent`, ack endpoint returns `delivered`), `server/database.py` (`delivered_at`)
-- R18 (partial): `server/server.py` (`/messages/{message_id}/ack` used as delivered semantics)
-- R20: `server/database.py` (`messages` queue, `prekeys`), `server/server.py` (`/messages/poll`, `/prekeys/{username}/claim`), `client/ui.py` (prekey-first send path)
 
 ## Functional Requirements
 1. Accounts & Authentication 

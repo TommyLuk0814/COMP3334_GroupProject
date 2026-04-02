@@ -13,17 +13,18 @@ from crypto_manager import CryptoManager
 
 
 class SecureIMApp(tk.Tk):
-    def __init__(self):
+    def __init__(self, profile_name="default"):
         super().__init__()
-        self.title("IM App")
+        self.profile_name = str(profile_name or "default")
+        self.title(f"IM App ({self.profile_name})")
         self.geometry("1280x840")
         self.resizable(True, True)
 
         style = ttk.Style(self)
         style.configure("TLabel", font=("Arial", 12))
 
-        self.api = IMClientAPI()
-        self.crypto = CryptoManager()
+        self.api = IMClientAPI(profile_name=self.profile_name)
+        self.crypto = CryptoManager(profile_name=self.profile_name)
 
         self.temp_username = None
         self.temp_password = None
