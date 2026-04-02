@@ -121,10 +121,12 @@ class LoginPage(tk.Frame):
         ttk.Label(form_frame, text="Username:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
         self.username_entry = ttk.Entry(form_frame, width=25)
         self.username_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.username_entry.bind("<Return>", lambda _event: self.on_login())
 
         ttk.Label(form_frame, text="Password:").grid(row=1, column=0, sticky="e", padx=5, pady=5)
         self.password_entry = ttk.Entry(form_frame, width=25, show="*")
         self.password_entry.grid(row=1, column=1, padx=5, pady=5)
+        self.password_entry.bind("<Return>", lambda _event: self.on_login())
 
         btn_frame = ttk.Frame(center)
         btn_frame.pack(pady=20)
@@ -162,14 +164,17 @@ class RegistrationPage(tk.Frame):
         ttk.Label(form_frame, text="Username:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
         self.username_entry = ttk.Entry(form_frame, width=25)
         self.username_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.username_entry.bind("<Return>", lambda _event: self.on_register())
 
         ttk.Label(form_frame, text="Password:").grid(row=1, column=0, sticky="e", padx=5, pady=5)
         self.password_entry = ttk.Entry(form_frame, width=25, show="*")
         self.password_entry.grid(row=1, column=1, padx=5, pady=5)
+        self.password_entry.bind("<Return>", lambda _event: self.on_register())
 
         ttk.Label(form_frame, text="Confirm:").grid(row=2, column=0, sticky="e", padx=5, pady=5)
         self.confirm_entry = ttk.Entry(form_frame, width=25, show="*")
         self.confirm_entry.grid(row=2, column=1, padx=5, pady=5)
+        self.confirm_entry.bind("<Return>", lambda _event: self.on_register())
 
         btn_frame = ttk.Frame(center)
         btn_frame.pack(pady=20)
@@ -209,6 +214,7 @@ class LoginOTPPage(tk.Frame):
         ttk.Label(form_frame, text="OTP:").grid(row=0, column=0, padx=5, pady=5)
         self.otp_entry = ttk.Entry(form_frame, width=20)
         self.otp_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.otp_entry.bind("<Return>", lambda _event: self.on_confirm())
 
         btn_frame = ttk.Frame(center)
         btn_frame.pack(pady=20)
