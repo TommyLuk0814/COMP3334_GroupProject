@@ -223,12 +223,22 @@ class CryptoManager:
         self._persist_local_prekeys()
         return upload_entries
 
-    def _set_session(self, peer_username: str, peer_device_id: str, session_key_b64: str, established_by: str):
-        self.session_keys[peer_username] = {
+    def _set_session(
+        self,
+        peer_username: str,
+        peer_device_id: str,
+        session_key_b64: str,
+        established_by: str,
+        bootstrap: Optional[Dict[str, str]] = None,
+    ):
+        entry = {
             "peer_device_id": peer_device_id,
             "session_key": session_key_b64,
             "established_by": established_by,
         }
+        if bootstrap:
+            entry["bootstrap"] = dict(bootstrap)
+        self.session_keys[peer_username] = entry
 
     def encrypt_message_with_prekey_bundle(
         self,
@@ -271,7 +281,18 @@ class CryptoManager:
         peer_prekey_pub = X25519PublicKey.from_public_bytes(base64.b64decode(prekey_public.encode("utf-8")))
         shared_secret = sender_eph_private.exchange(peer_prekey_pub)
         session_key_b64 = self._derive_shared_key(shared_secret)
-        self._set_session(peer_username, peer_device_id, session_key_b64, "prekey-initiator")
+        self._set_session(
+            peer_username,
+            peer_device_id,
+            session_key_b64,
+            "prekey-initiator",
+            bootstrap={
+                "session_mode": "prekey",
+                "prekey_id": prekey_id,
+                "sender_eph_pub": sender_eph_public,
+                "sender_eph_sig": sender_eph_sig,
+            },
+        )
 
         aad = dict(aad_obj)
         aad.update(
@@ -486,6 +507,12 @@ class CryptoManager:
         key = self._message_key_bytes(peer)
         nonce = os.urandom(12)
         aad_json = json.dumps(aad_obj, sort_keys=True, separators=(",", ":"))
+        session_entry = self.session_keys.get(peer) or {}
+        bootstrap = session_entry.get("bootstrap") if isinstance(session_entry, dict) else None
+        if bootstrap and str(session_entry.get("established_by", "")) == "prekey-initiator":
+            merged_aad = dict(aad_obj)
+            merged_aad.update({k: v for k, v in bootstrap.items() if k and v is not None})
+            aad_json = json.dumps(merged_aad, sort_keys=True, separators=(",", ":"))
         aes = AESGCM(key)
         ciphertext = aes.encrypt(nonce, message.encode("utf-8"), aad_json.encode("utf-8"))
         return {
