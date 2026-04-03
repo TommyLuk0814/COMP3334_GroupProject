@@ -473,13 +473,15 @@ class HomePage(tk.Frame):
     def _selected_ttl_seconds(self):
         raw_value = self.ttl_value_var.get().strip()
         if not raw_value:
-            return None
+            return 0
         try:
             amount = int(raw_value)
         except ValueError:
             return None
-        if amount <= 0:
+        if amount < 0:
             return None
+        if amount == 0:
+            return 0
         selected_label = self.ttl_unit_var.get()
         for label, seconds in self._ttl_units:
             if label == selected_label:
@@ -950,7 +952,7 @@ class HomePage(tk.Frame):
         counter = int(self.controller.api.next_sender_counter())
         ttl_seconds = self._selected_ttl_seconds() 
         if ttl_seconds is None:
-            messagebox.showerror("Invalid TTL", "Please enter the self-destruct timer for the message.")
+            messagebox.showerror("Invalid TTL", "Use a non-negative integer. Leave empty or use 0 for permanent storage.")
             return
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds) if ttl_seconds > 0 else None
         aad = {
