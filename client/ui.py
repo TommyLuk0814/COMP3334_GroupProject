@@ -293,6 +293,7 @@ class HomePage(tk.Frame):
         self._seen_message_ids = set()
         self._chat_records_by_friend = {}
         self._unread_counts = {}
+        self._last_activity_ts = {}
         self._friend_list_usernames = []
         self._active_chat_friend = None
         self._suspend_friend_select_event = False
@@ -398,7 +399,9 @@ class HomePage(tk.Frame):
     def set_user(self, username):
         self.current_user = username
         self._active_chat_friend = None
-        self._chat_records_by_friend, self._unread_counts = self._load_chat_history_for_user(username)
+        self._chat_records_by_friend, self._unread_counts, self._last_activity_ts = self._load_chat_history_for_user(
+            username
+        )
         self.user_label.config(text=f"Username: {username}")
         self.chat_title_label.config(text="Select A Friend To Chat")
         self.chat_content.pack_forget()
@@ -486,6 +489,7 @@ class HomePage(tk.Frame):
         self.current_user = None
         self._chat_records_by_friend = {}
         self._unread_counts = {}
+        self._last_activity_ts = {}
         self._friend_list_usernames = []
         self.chat_title_label.config(text="Select A Friend To Chat")
         self.chat_content.pack_forget()
@@ -530,8 +534,10 @@ class HomePage(tk.Frame):
         data = self.controller.api.load_chat_history(username)
         friends = data.get("friends", {}) if isinstance(data, dict) else {}
         unread_raw = data.get("unread_counts", {}) if isinstance(data, dict) else {}
+        last_activity_raw = data.get("last_activity_ts", {}) if isinstance(data, dict) else {}
         loaded = {}
         unread_counts = {}
+        last_activity_ts = {}
         if not isinstance(friends, dict):
             friends = {}
         for friend, records in friends.items():
@@ -575,6 +581,13 @@ class HomePage(tk.Frame):
                 )
             if cleaned_records:
                 loaded[friend] = cleaned_records
+                last_seen = 0.0
+                for record in cleaned_records:
+                    created = record.get("created_at_ts")
+                    if isinstance(created, (int, float)) and float(created) > last_seen:
+                        last_seen = float(created)
+                if last_seen > 0:
+                    last_activity_ts[friend] = last_seen
         if isinstance(unread_raw, dict):
             for friend, value in unread_raw.items():
                 if not isinstance(friend, str):
@@ -584,7 +597,17 @@ class HomePage(tk.Frame):
                 except Exception:
                     number = 0
                 unread_counts[friend] = max(0, number)
-        return loaded, unread_counts
+        if isinstance(last_activity_raw, dict):
+            for friend, value in last_activity_raw.items():
+                if not isinstance(friend, str):
+                    continue
+                try:
+                    ts = float(value)
+                except Exception:
+                    ts = 0.0
+                if ts > 0:
+                    last_activity_ts[friend] = ts
+        return loaded, unread_counts, last_activity_ts
 
     def _save_chat_history(self):
         if not self.current_user:
@@ -594,10 +617,14 @@ class HomePage(tk.Frame):
             {
                 "friends": self._chat_records_by_friend,
                 "unread_counts": self._unread_counts,
+                "last_activity_ts": self._last_activity_ts,
             },
         )
 
     def _conversation_last_activity_ts(self, friend):
+        saved_ts = self._last_activity_ts.get(friend)
+        if isinstance(saved_ts, (int, float)) and float(saved_ts) > 0:
+            return float(saved_ts)
         records = self._chat_records_by_friend.get(friend, [])
         last_ts = 0.0
         for record in records:
@@ -608,6 +635,18 @@ class HomePage(tk.Frame):
                 if float(created_at_ts) > last_ts:
                     last_ts = float(created_at_ts)
         return last_ts
+
+    def _mark_conversation_activity(self, friend, activity_ts=None):
+        if not friend:
+            return
+        ts = activity_ts if isinstance(activity_ts, (int, float)) else time.time()
+        ts = float(ts)
+        if ts <= 0:
+            return
+        current = self._last_activity_ts.get(friend)
+        current_ts = float(current) if isinstance(current, (int, float)) else 0.0
+        if ts > current_ts:
+            self._last_activity_ts[friend] = ts
 
     def _to_expiry_timestamp(self, expires_at):
         if not expires_at:
@@ -637,16 +676,18 @@ class HomePage(tk.Frame):
             normalized_message_id = int(message_id) if message_id is not None else None
         except Exception:
             normalized_message_id = None
+        created_at_ts = time.time()
         self._chat_records_by_friend.setdefault(friend, []).append(
             {
                 "text": text,
                 "expires_at_ts": self._to_expiry_timestamp(expires_at),
-                "created_at_ts": time.time(),
+                "created_at_ts": created_at_ts,
                 "outgoing": bool(outgoing),
                 "message_id": normalized_message_id,
                 "delivery_status": normalized_status,
             }
         )
+        self._mark_conversation_activity(friend, created_at_ts)
         self._save_chat_history()
         self.refresh_social()
         self._render_chat_records()

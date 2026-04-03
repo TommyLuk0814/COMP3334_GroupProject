@@ -288,31 +288,51 @@ class IMClientAPI:
     def load_chat_history(self, username):
         path = self._chat_history_path(username)
         if not path.exists():
-            return {"friends": {}, "unread_counts": {}}
+            return {"friends": {}, "unread_counts": {}, "last_activity_ts": {}}
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 friends = data.get("friends", {})
                 unread_counts = data.get("unread_counts", {})
+                last_activity_ts = data.get("last_activity_ts", {})
                 if not isinstance(friends, dict):
                     friends = {}
                 if not isinstance(unread_counts, dict):
                     unread_counts = {}
-                return {"friends": friends, "unread_counts": unread_counts}
+                if not isinstance(last_activity_ts, dict):
+                    last_activity_ts = {}
+                return {
+                    "friends": friends,
+                    "unread_counts": unread_counts,
+                    "last_activity_ts": last_activity_ts,
+                }
         except Exception:
             pass
-        return {"friends": {}, "unread_counts": {}}
+        return {"friends": {}, "unread_counts": {}, "last_activity_ts": {}}
 
     def save_chat_history(self, username, data):
         path = self._chat_history_path(username)
         payload = data if isinstance(data, dict) else {}
         friends = payload.get("friends", {})
         unread_counts = payload.get("unread_counts", {})
+        last_activity_ts = payload.get("last_activity_ts", {})
         if not isinstance(friends, dict):
             friends = {}
         if not isinstance(unread_counts, dict):
             unread_counts = {}
-        path.write_text(json.dumps({"friends": friends, "unread_counts": unread_counts}, indent=2), encoding="utf-8")
+        if not isinstance(last_activity_ts, dict):
+            last_activity_ts = {}
+        path.write_text(
+            json.dumps(
+                {
+                    "friends": friends,
+                    "unread_counts": unread_counts,
+                    "last_activity_ts": last_activity_ts,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
     def is_replay_message(self, sender_username, sender_device_id, sender_counter, window_size=256):
         key = f"{str(sender_username).strip().lower()}|{str(sender_device_id).strip()}"
