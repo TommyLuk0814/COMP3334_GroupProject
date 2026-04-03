@@ -34,8 +34,8 @@
 - [x] R20 Offline ciphertext queue
 - [x] R21 Retention and cleanup
 - [x] R22 Duplicate/replay robustness
-- [ ] R23 Conversation list
-- [ ] R24 Unread counters
+- [x] R23 Conversation list
+- [x] R24 Unread counters
 - [ ] R25 Paging / incremental loading
 
 ## Functional Requirements

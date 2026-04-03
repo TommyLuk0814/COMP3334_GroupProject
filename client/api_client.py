@@ -288,18 +288,31 @@ class IMClientAPI:
     def load_chat_history(self, username):
         path = self._chat_history_path(username)
         if not path.exists():
-            return {"friends": {}}
+            return {"friends": {}, "unread_counts": {}}
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and isinstance(data.get("friends", {}), dict):
-                return {"friends": data.get("friends", {})}
+            if isinstance(data, dict):
+                friends = data.get("friends", {})
+                unread_counts = data.get("unread_counts", {})
+                if not isinstance(friends, dict):
+                    friends = {}
+                if not isinstance(unread_counts, dict):
+                    unread_counts = {}
+                return {"friends": friends, "unread_counts": unread_counts}
         except Exception:
             pass
-        return {"friends": {}}
+        return {"friends": {}, "unread_counts": {}}
 
     def save_chat_history(self, username, data):
         path = self._chat_history_path(username)
-        path.write_text(json.dumps(data or {"friends": {}}, indent=2), encoding="utf-8")
+        payload = data if isinstance(data, dict) else {}
+        friends = payload.get("friends", {})
+        unread_counts = payload.get("unread_counts", {})
+        if not isinstance(friends, dict):
+            friends = {}
+        if not isinstance(unread_counts, dict):
+            unread_counts = {}
+        path.write_text(json.dumps({"friends": friends, "unread_counts": unread_counts}, indent=2), encoding="utf-8")
 
     def is_replay_message(self, sender_username, sender_device_id, sender_counter, window_size=256):
         key = f"{str(sender_username).strip().lower()}|{str(sender_device_id).strip()}"

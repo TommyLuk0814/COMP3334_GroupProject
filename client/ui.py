@@ -292,6 +292,8 @@ class HomePage(tk.Frame):
         self._outgoing_request_ids = []
         self._seen_message_ids = set()
         self._chat_records_by_friend = {}
+        self._unread_counts = {}
+        self._friend_list_usernames = []
         self._active_chat_friend = None
         self._suspend_friend_select_event = False
         self._polling_active = False
@@ -396,7 +398,7 @@ class HomePage(tk.Frame):
     def set_user(self, username):
         self.current_user = username
         self._active_chat_friend = None
-        self._chat_records_by_friend = self._load_chat_history_for_user(username)
+        self._chat_records_by_friend, self._unread_counts = self._load_chat_history_for_user(username)
         self.user_label.config(text=f"Username: {username}")
         self.chat_title_label.config(text="Select A Friend To Chat")
         self.chat_content.pack_forget()
@@ -426,10 +428,26 @@ class HomePage(tk.Frame):
                 for f in friends:
                     friend_name = f.get("username", "")
                     friends_usernames.append(friend_name)
-                    self.friend_listbox.insert(tk.END, friend_name)
 
-            if self._active_chat_friend and self._active_chat_friend in friends_usernames:
-                idx = friends_usernames.index(self._active_chat_friend)
+            sorted_usernames = sorted(
+                friends_usernames,
+                key=lambda name: (-self._conversation_last_activity_ts(name), name),
+            )
+            self._friend_list_usernames = sorted_usernames
+            for friend_name in sorted_usernames:
+                unread = int(self._unread_counts.get(friend_name, 0) or 0)
+                last_ts = self._conversation_last_activity_ts(friend_name)
+                if last_ts > 0:
+                    last_text = datetime.fromtimestamp(last_ts).strftime("%m-%d %H:%M")
+                    label = f"{friend_name} [{last_text}]"
+                else:
+                    label = friend_name
+                if unread > 0:
+                    label = f"{label} ({unread})"
+                self.friend_listbox.insert(tk.END, label)
+
+            if self._active_chat_friend and self._active_chat_friend in sorted_usernames:
+                idx = sorted_usernames.index(self._active_chat_friend)
                 self.friend_listbox.selection_clear(0, tk.END)
                 self.friend_listbox.selection_set(idx)
                 self.friend_listbox.activate(idx)
@@ -467,6 +485,8 @@ class HomePage(tk.Frame):
         # Avoid persisting an empty history snapshot during logout.
         self.current_user = None
         self._chat_records_by_friend = {}
+        self._unread_counts = {}
+        self._friend_list_usernames = []
         self.chat_title_label.config(text="Select A Friend To Chat")
         self.chat_content.pack_forget()
         self._render_chat_records()
@@ -509,9 +529,11 @@ class HomePage(tk.Frame):
     def _load_chat_history_for_user(self, username):
         data = self.controller.api.load_chat_history(username)
         friends = data.get("friends", {}) if isinstance(data, dict) else {}
+        unread_raw = data.get("unread_counts", {}) if isinstance(data, dict) else {}
         loaded = {}
+        unread_counts = {}
         if not isinstance(friends, dict):
-            return loaded
+            friends = {}
         for friend, records in friends.items():
             if not isinstance(friend, str) or not isinstance(records, list):
                 continue
@@ -533,6 +555,11 @@ class HomePage(tk.Frame):
                     message_id = int(message_id) if message_id is not None else None
                 except Exception:
                     message_id = None
+                created_at_ts = record.get("created_at_ts")
+                try:
+                    created_at_ts = float(created_at_ts) if created_at_ts is not None else None
+                except Exception:
+                    created_at_ts = None
                 delivery_status = str(record.get("delivery_status", "")).strip().lower() if outgoing else ""
                 if outgoing and delivery_status not in ("sent", "delivered"):
                     delivery_status = "sent"
@@ -540,6 +567,7 @@ class HomePage(tk.Frame):
                     {
                         "text": text,
                         "expires_at_ts": expires_at_ts,
+                        "created_at_ts": created_at_ts,
                         "outgoing": outgoing,
                         "message_id": message_id,
                         "delivery_status": delivery_status,
@@ -547,12 +575,39 @@ class HomePage(tk.Frame):
                 )
             if cleaned_records:
                 loaded[friend] = cleaned_records
-        return loaded
+        if isinstance(unread_raw, dict):
+            for friend, value in unread_raw.items():
+                if not isinstance(friend, str):
+                    continue
+                try:
+                    number = int(value)
+                except Exception:
+                    number = 0
+                unread_counts[friend] = max(0, number)
+        return loaded, unread_counts
 
     def _save_chat_history(self):
         if not self.current_user:
             return
-        self.controller.api.save_chat_history(self.current_user, {"friends": self._chat_records_by_friend})
+        self.controller.api.save_chat_history(
+            self.current_user,
+            {
+                "friends": self._chat_records_by_friend,
+                "unread_counts": self._unread_counts,
+            },
+        )
+
+    def _conversation_last_activity_ts(self, friend):
+        records = self._chat_records_by_friend.get(friend, [])
+        last_ts = 0.0
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            created_at_ts = record.get("created_at_ts")
+            if isinstance(created_at_ts, (int, float)):
+                if float(created_at_ts) > last_ts:
+                    last_ts = float(created_at_ts)
+        return last_ts
 
     def _to_expiry_timestamp(self, expires_at):
         if not expires_at:
@@ -586,12 +641,14 @@ class HomePage(tk.Frame):
             {
                 "text": text,
                 "expires_at_ts": self._to_expiry_timestamp(expires_at),
+                "created_at_ts": time.time(),
                 "outgoing": bool(outgoing),
                 "message_id": normalized_message_id,
                 "delivery_status": normalized_status,
             }
         )
         self._save_chat_history()
+        self.refresh_social()
         self._render_chat_records()
 
     def _render_record_text(self, record):
@@ -681,7 +738,15 @@ class HomePage(tk.Frame):
             self._set_active_chat_friend(None)
             return
         idx = int(sel[0])
-        friend = self.friend_listbox.get(idx).strip() or None
+        friend = None
+        if 0 <= idx < len(self._friend_list_usernames):
+            friend = self._friend_list_usernames[idx]
+        if not friend:
+            return
+        if int(self._unread_counts.get(friend, 0) or 0) > 0:
+            self._unread_counts[friend] = 0
+            self._save_chat_history()
+            self.refresh_social()
         self._set_active_chat_friend(friend)
 
     def _social_refresh_loop(self):
@@ -711,7 +776,10 @@ class HomePage(tk.Frame):
             messagebox.showwarning("Select friend", "Choose someone in the friend list first.")
             return None
         idx = int(sel[0])
-        return self.friend_listbox.get(idx).strip() or None
+        if idx < 0 or idx >= len(self._friend_list_usernames):
+            messagebox.showerror("Error", "Invalid selection.")
+            return None
+        return self._friend_list_usernames[idx]
 
     def remove_friend(self):
         peer = self._selected_friend_username()
@@ -1169,6 +1237,10 @@ class HomePage(tk.Frame):
 
                     self._record_received_message(sender, sender_device, sender_counter)
                     self._append_chat_line(sender, f"{sender}: {plaintext}", expires_at=msg.get("expires_at"))
+                    if sender != self._active_chat_friend:
+                        self._unread_counts[sender] = int(self._unread_counts.get(sender, 0) or 0) + 1
+                        self._save_chat_history()
+                        self.refresh_social()
                     self._seen_message_ids.add(msg_id)
                     self.controller.api.ack_message(msg_id)
             self._refresh_outgoing_delivery_statuses()
