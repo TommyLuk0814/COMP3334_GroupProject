@@ -1,37 +1,15 @@
 # COMP3334_GroupProject
 
 ## Setup
-1. Install dependencies (single source of truth):
+1. Install dependencies:
     - `pip install -r requirements.txt`
 
 ## Run
-1. Start backend:
+1. Start server:
     - `py server/server.py`
 2. Start client (new terminal):
     - `py client/main.py --profile user1`
     - `py client/main.py --profile user2`
-
-## Replay Test Tool
-Use this helper to duplicate an existing message row in `server/secure_im.db` and verify R9 / R22 replay handling.
-
-1. Duplicate the latest message:
-    - `py tools/duplicate_last_message.py`
-2. Duplicate a specific message id:
-    - `py tools/duplicate_last_message.py --message-id 123`
-
-Test flow:
-1. Send a normal message from one client to another.
-2. Confirm the receiver shows it once.
-3. Run the tool to duplicate the same ciphertext row.
-4. Poll again on the receiver.
-5. The duplicated message should be ignored by the replay window and should not render as a new message.
-
-Notes:
-- Use different `--profile` values when running multiple local clients on one machine.
-- Each profile has isolated local data (identity keys, device ID, known contact keys, and prekeys).
-
-## R7 Protocol Summary
-This project uses a signed X25519 prekey bootstrap to support offline first-message delivery under the honest-but-curious server model. The server only stores and relays ciphertext and public prekey material, while private keys stay on the client. When the recipient is offline, the sender can claim a one-time prekey, establish a shared session key, and send the first encrypted message without exposing plaintext to the server.
 
 ## Implementation Status Checklist
 - [x] R1 Registration
@@ -40,22 +18,22 @@ This project uses a signed X25519 prekey bootstrap to support offline first-mess
 - [x] R4 Per-device identity keypair
 - [ ] R5 Fingerprint / verification UI (partial: backend fingerprint/public key endpoints exist, full client fingerprint/verified UX pending)
 - [ ] R6 Key change detection (partial: key change detection helper exists, full warning/block UI flow pending)
-- [x] R7 Secure session establishment (implemented as signed X25519 handshake plus signed one-time prekey flow for offline first-message bootstrap)
+- [x] R7 Secure session establishment
 - [x] R8 Message encryption and authentication
-- [x] R9 Replay protection / de-duplication (receiver rejects duplicate sender_counter values per sender device within a persisted local replay window)
-- [x] R10 TTL / expiration policy (TTL choices are included in authenticated message metadata)
-- [x] R11 Client deletion behavior (expired chat records are pruned from the UI)
-- [x] R12 Server storage behavior (best-effort) (expired queued ciphertext is deleted from SQLite on access)
+- [x] R9 Replay protection / de-duplication
+- [x] R10 TTL / expiration policy
+- [x] R11 Client deletion behavior
+- [x] R12 Server storage behavior (best-effort)
 - [x] R13 Friend request workflow
 - [x] R14 Request lifecycle
-- [x] R15 Blocking / removing (requests and new outbound messages are blocked; queued-before-block ciphertext is dropped and poll excludes blocked pairs)
+- [x] R15 Blocking / removing
 - [x] R16 Default anti-spam control
-- [x] R17 Minimum delivery states (sender UI shows Sent/Delivered states; server exposes status lookup for sender-owned message ids)
-- [x] R18 Define "Delivered" semantics (Delivered means recipient client ACKed message via /messages/{id}/ack)
-- [x] R19 Metadata disclosure statement (documented below)
-- [x] R20 Offline ciphertext queue (including first-message support via prekey claim when recipient is offline)
-- [x] R21 Retention and cleanup (messages are retained until expiry, then cleaned up best-effort on the client and server)
-- [x] R22 Duplicate/replay robustness (client persists a per-sender-device replay window and ACKs duplicate ciphertexts without re-rendering them)
+- [x] R17 Minimum delivery states
+- [x] R18 Define "Delivered" semantics
+- [x] R19 Metadata disclosure statement
+- [x] R20 Offline ciphertext queue
+- [x] R21 Retention and cleanup
+- [x] R22 Duplicate/replay robustness
 - [ ] R23 Conversation list
 - [ ] R24 Unread counters
 - [ ] R25 Paging / incremental loading

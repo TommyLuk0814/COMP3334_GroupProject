@@ -1,3 +1,5 @@
+"""Authentication, validation, and request security helpers for the backend API."""
+
 from datetime import datetime
 import hashlib
 import re

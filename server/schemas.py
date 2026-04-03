@@ -1,3 +1,5 @@
+"""Pydantic models for all backend API requests and responses."""
+
 from datetime import datetime
 from typing import List, Optional
 

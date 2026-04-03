@@ -1,3 +1,5 @@
+"""Server configuration constants, including database path, session TTL, and rate limits for various actions."""
+
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent / "secure_im.db"

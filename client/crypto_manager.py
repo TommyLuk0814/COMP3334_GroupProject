@@ -1,3 +1,5 @@
+"""Client-side cryptographic manager for secure messaging sessions, prekey management, and handshake handling."""
+
 import time
 import base64
 import json

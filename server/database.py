@@ -1,3 +1,5 @@
+"""SQLite persistence layer for users, friendships, sessions, messages, and prekeys."""
+
 from datetime import datetime
 import secrets
 import sqlite3

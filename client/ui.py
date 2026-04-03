@@ -1,3 +1,5 @@
+"""Tkinter UI pages."""
+
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 from datetime import datetime, timedelta, timezone
@@ -284,6 +286,7 @@ class HomePage(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
+        # Runtime chat cache is profile-scoped and persisted through api_client helpers.
         self.current_user = None
         self._incoming_request_ids = []
         self._outgoing_request_ids = []

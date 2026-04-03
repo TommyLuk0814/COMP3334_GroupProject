@@ -1,3 +1,5 @@
+"""Client API wrapper for the IM server."""
+
 import json
 from pathlib import Path
 import time

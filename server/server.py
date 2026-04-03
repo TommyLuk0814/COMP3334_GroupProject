@@ -1,3 +1,5 @@
+"""FastAPI backend server handling user management, friend relationships, session handshakes, message exchange, and key management with appropriate rate limiting and security checks."""
+
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 import secrets

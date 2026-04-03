@@ -1,3 +1,5 @@
+"""In-memory sliding-window rate limiter used by authentication and social endpoints."""
+
 import threading
 import time
 from typing import Dict, List

@@ -1,3 +1,5 @@
+"""Client entrypoint for launching the Tkinter app with a profile-scoped local state."""
+
 import argparse
 
 from ui import SecureIMApp
