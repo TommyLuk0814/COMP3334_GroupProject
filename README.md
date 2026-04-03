@@ -36,7 +36,7 @@
 - [x] R22 Duplicate/replay robustness
 - [x] R23 Conversation list
 - [x] R24 Unread counters
-- [ ] R25 Paging / incremental loading
+- [x] R25 Paging / incremental loading
 
 ## Functional Requirements
 1. Accounts & Authentication 

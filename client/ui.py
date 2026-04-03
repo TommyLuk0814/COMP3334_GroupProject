@@ -12,6 +12,7 @@ import pyotp
 import qrcode
 
 from api_client import IMClientAPI
+from config import CHAT_PAGE_SIZE
 from crypto_manager import CryptoManager
 
 
@@ -294,6 +295,8 @@ class HomePage(tk.Frame):
         self._chat_records_by_friend = {}
         self._unread_counts = {}
         self._last_activity_ts = {}
+        self._visible_message_counts = {}
+        self._chat_page_size = max(1, int(CHAT_PAGE_SIZE))
         self._friend_list_usernames = []
         self._active_chat_friend = None
         self._suspend_friend_select_event = False
@@ -365,8 +368,18 @@ class HomePage(tk.Frame):
         ttk.Button(blocked_action_row, text="Block", command=self.block_friend).pack(side="left", padx=(0, 6))
         ttk.Button(blocked_action_row, text="Unblock", command=self.unblock_user).pack(side="left")
 
-        self.chat_title_label = ttk.Label(right_panel, text="Select A Friend To Chat")
-        self.chat_title_label.pack(anchor="w", pady=(0, 6))
+        chat_header_row = ttk.Frame(right_panel)
+        chat_header_row.pack(fill="x", pady=(0, 6))
+        self.chat_title_label = ttk.Label(chat_header_row, text="Select A Friend To Chat")
+        self.chat_title_label.pack(side="left")
+        self.load_older_info_label = ttk.Label(chat_header_row, text="")
+        self.load_older_info_label.pack(side="right")
+        self.load_older_button = ttk.Button(
+            chat_header_row,
+            text="Load Older Messages",
+            command=self.load_older_messages,
+        )
+        self.load_older_button.pack(side="right", padx=(0, 10))
 
         self.chat_content = ttk.Frame(right_panel)
         self.chat_text = tk.Text(self.chat_content, state="disabled", wrap="word")
@@ -490,6 +503,7 @@ class HomePage(tk.Frame):
         self._chat_records_by_friend = {}
         self._unread_counts = {}
         self._last_activity_ts = {}
+        self._visible_message_counts = {}
         self._friend_list_usernames = []
         self.chat_title_label.config(text="Select A Friend To Chat")
         self.chat_content.pack_forget()
@@ -526,8 +540,11 @@ class HomePage(tk.Frame):
                 kept_records.append(record)
             if kept_records:
                 self._chat_records_by_friend[friend] = kept_records
+                visible = int(self._visible_message_counts.get(friend, self._chat_page_size) or self._chat_page_size)
+                self._visible_message_counts[friend] = min(max(visible, self._chat_page_size), len(kept_records))
             else:
                 self._chat_records_by_friend.pop(friend, None)
+                self._visible_message_counts.pop(friend, None)
         self._save_chat_history()
 
     def _load_chat_history_for_user(self, username):
@@ -749,19 +766,45 @@ class HomePage(tk.Frame):
         self.chat_text.configure(state="normal")
         self.chat_text.delete("1.0", tk.END)
         if not self._active_chat_friend:
+            self.load_older_button.configure(state="disabled")
+            self.load_older_info_label.config(text="")
             self.chat_text.configure(state="disabled")
             return
-        for line in self._chat_records_by_friend.get(self._active_chat_friend, []):
+        records = self._chat_records_by_friend.get(self._active_chat_friend, [])
+        total = len(records)
+        visible = int(self._visible_message_counts.get(self._active_chat_friend, self._chat_page_size) or self._chat_page_size)
+        if total > 0:
+            visible = min(max(visible, self._chat_page_size), total)
+            self._visible_message_counts[self._active_chat_friend] = visible
+        else:
+            visible = 0
+        start_idx = max(0, total - visible)
+        hidden = start_idx
+
+        for line in records[start_idx:]:
             if isinstance(line, dict):
                 self.chat_text.insert(tk.END, f"{self._render_record_text(line)}\n")
             else:
                 self.chat_text.insert(tk.END, f"{line}\n")
+
+        if hidden > 0:
+            self.load_older_button.configure(state="normal")
+            self.load_older_info_label.config(text=f"Showing {visible}/{total} messages")
+        else:
+            self.load_older_button.configure(state="disabled")
+            if total > 0:
+                self.load_older_info_label.config(text=f"Showing all {total} messages")
+            else:
+                self.load_older_info_label.config(text="")
         self.chat_text.see(tk.END)
         self.chat_text.configure(state="disabled")
 
     def _set_active_chat_friend(self, friend):
         self._active_chat_friend = friend
         if friend:
+            total = len(self._chat_records_by_friend.get(friend, []))
+            default_visible = self._chat_page_size if total > self._chat_page_size else total
+            self._visible_message_counts[friend] = max(default_visible, 0)
             self.chat_title_label.config(text=f"Chatting with {friend}")
             if not self.chat_content.winfo_ismapped():
                 self.chat_content.pack(fill="both", expand=True)
@@ -769,6 +812,17 @@ class HomePage(tk.Frame):
             self.chat_title_label.config(text="Select A Friend To Chat")
             if self.chat_content.winfo_ismapped():
                 self.chat_content.pack_forget()
+        self._render_chat_records()
+
+    def load_older_messages(self):
+        friend = self._active_chat_friend
+        if not friend:
+            return
+        total = len(self._chat_records_by_friend.get(friend, []))
+        if total <= 0:
+            return
+        current_visible = int(self._visible_message_counts.get(friend, self._chat_page_size) or self._chat_page_size)
+        self._visible_message_counts[friend] = min(total, current_visible + self._chat_page_size)
         self._render_chat_records()
 
     def on_friend_selected(self, _event=None):
