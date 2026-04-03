@@ -38,6 +38,33 @@
 - [x] R24 Unread counters
 - [x] R25 Paging / incremental loading
 
+## Implementation Notes (How Each Requirement Is Met)
+- R1 Registration: Server provides `/register` with unique username/contact code checks and password hashing before storing user records.
+- R2 Login with Password + OTP: Login is split into password verification (`/login/password`) and TOTP verification (`/login/otp`) with token issuance bound to user/device.
+- R3 Logout / session invalidation: Client clears local token on logout and server supports session/token expiry semantics.
+- R4 Per-device identity keypair: Each client profile generates/stores local Ed25519 identity keys and uploads only public keys per device.
+- R5 Fingerprint / verification UI: Client shows per-device fingerprints in `Keys / Fingerprint` dialog and stores local verified fingerprints.
+- R6 Key change detection: Client tracks known fingerprints, shows persistent `[Key changed]` badge until re-verify, and uses allow-with-warning prompts on send.
+- R7 Secure session establishment: Custom HbC-appropriate handshake + signed prekey bootstrap establish per-peer shared session keys.
+- R8 Message encryption and authentication: Messages use AES-GCM with authenticated metadata (AAD) including sender/recipient/counter/TTL context.
+- R9 Replay protection / de-duplication: Receiver tracks per-sender-device counters in a persisted replay window and drops duplicates/replays.
+- R10 TTL / expiration policy: Sender includes TTL in authenticated metadata and computes expiry; `0`/empty is treated as non-expiring.
+- R11 Client deletion behavior: Expired messages are pruned from UI and local persisted chat history.
+- R12 Server storage behavior (best-effort): Server filters/cleans expired queued ciphertext on delivery paths and cleanup logic.
+- R13 Friend request workflow: Add-contact flow is request-based (`send`, `accept`, `decline`, `cancel`) rather than instant friendship.
+- R14 Request lifecycle: Client shows incoming/outgoing pending lists and supports accept/decline/cancel operations.
+- R15 Blocking / removing: Blocking/removing supported; blocked pairs are prevented from normal interaction and queued undelivered messages are handled safely.
+- R16 Default anti-spam control: Only friends can exchange chat messages by default; non-friends are limited to friend-request flow.
+- R17 Minimum delivery states: Outgoing messages display at least `Sent` and `Delivered` states.
+- R18 Define Delivered semantics: Delivered is based on recipient-side ACK returned to server, then exposed to sender status query.
+- R19 Metadata disclosure statement: Delivery status is documented as revealing timing/online metadata to the HbC server.
+- R20 Offline ciphertext queue: Server stores ciphertext for offline recipients and forwards when they come online.
+- R21 Retention and cleanup: Retention policy combines post-delivery handling and TTL-respecting best-effort expiry cleanup.
+- R22 Duplicate/replay robustness: Client safely handles retries/duplicates via persisted replay checks plus seen-message filtering.
+- R23 Conversation list: Friend list is sorted by most recent conversation activity and shows last activity timestamp.
+- R24 Unread counters: Per-conversation unread counts are maintained, displayed, persisted, and cleared on opening that conversation.
+- R25 Paging / incremental loading: Chat window shows recent history first and loads older messages incrementally via `Load Older Messages`; page size is configurable in `client/config.py`.
+
 ## Functional Requirements
 1. Accounts & Authentication 
     - (R1) Registration 
