@@ -20,6 +20,8 @@ class IMClientAPI:
         self.verified_keys_path = self.profile_dir / ".verified_contact_keys.json"
         self.replay_state_path = self.profile_dir / ".message_replay_state.json"
         self.sender_counter_state_path = self.profile_dir / ".sender_counter_state.json"
+        self.chat_history_dir = self.profile_dir / ".chat_history"
+        self.chat_history_dir.mkdir(parents=True, exist_ok=True)
 
     def _normalize_profile_name(self, profile_name):
         raw = (str(profile_name or "default")).strip().lower()
@@ -276,6 +278,26 @@ class IMClientAPI:
         state["last_counter"] = counter
         self._save_sender_counter_state(state)
         return counter
+
+    def _chat_history_path(self, username):
+        normalized = self._normalize_profile_name(username)
+        return self.chat_history_dir / f"{normalized}.json"
+
+    def load_chat_history(self, username):
+        path = self._chat_history_path(username)
+        if not path.exists():
+            return {"friends": {}}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("friends", {}), dict):
+                return {"friends": data.get("friends", {})}
+        except Exception:
+            pass
+        return {"friends": {}}
+
+    def save_chat_history(self, username, data):
+        path = self._chat_history_path(username)
+        path.write_text(json.dumps(data or {"friends": {}}, indent=2), encoding="utf-8")
 
     def is_replay_message(self, sender_username, sender_device_id, sender_counter, window_size=256):
         key = f"{str(sender_username).strip().lower()}|{str(sender_device_id).strip()}"

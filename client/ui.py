@@ -393,9 +393,11 @@ class HomePage(tk.Frame):
     def set_user(self, username):
         self.current_user = username
         self._active_chat_friend = None
+        self._chat_records_by_friend = self._load_chat_history_for_user(username)
         self.user_label.config(text=f"Username: {username}")
         self.chat_title_label.config(text="Select A Friend To Chat")
         self.chat_content.pack_forget()
+        self._prune_expired_chat_records()
         self._render_chat_records()
         self.refresh_social()
         if not self._polling_active:
@@ -459,6 +461,8 @@ class HomePage(tk.Frame):
     def logout(self):
         self._polling_active = False
         self._active_chat_friend = None
+        # Avoid persisting an empty history snapshot during logout.
+        self.current_user = None
         self._chat_records_by_friend = {}
         self.chat_title_label.config(text="Select A Friend To Chat")
         self.chat_content.pack_forget()
@@ -495,6 +499,38 @@ class HomePage(tk.Frame):
                 self._chat_records_by_friend[friend] = kept_records
             else:
                 self._chat_records_by_friend.pop(friend, None)
+        self._save_chat_history()
+
+    def _load_chat_history_for_user(self, username):
+        data = self.controller.api.load_chat_history(username)
+        friends = data.get("friends", {}) if isinstance(data, dict) else {}
+        loaded = {}
+        if not isinstance(friends, dict):
+            return loaded
+        for friend, records in friends.items():
+            if not isinstance(friend, str) or not isinstance(records, list):
+                continue
+            cleaned_records = []
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                text = str(record.get("text", "")).strip()
+                if not text:
+                    continue
+                expires_at_ts = record.get("expires_at_ts")
+                try:
+                    expires_at_ts = float(expires_at_ts) if expires_at_ts is not None else None
+                except Exception:
+                    expires_at_ts = None
+                cleaned_records.append({"text": text, "expires_at_ts": expires_at_ts})
+            if cleaned_records:
+                loaded[friend] = cleaned_records
+        return loaded
+
+    def _save_chat_history(self):
+        if not self.current_user:
+            return
+        self.controller.api.save_chat_history(self.current_user, {"friends": self._chat_records_by_friend})
 
     def _to_expiry_timestamp(self, expires_at):
         if not expires_at:
@@ -523,7 +559,7 @@ class HomePage(tk.Frame):
                 "expires_at_ts": self._to_expiry_timestamp(expires_at),
             }
         )
-        self._prune_expired_chat_records()
+        self._save_chat_history()
         self._render_chat_records()
 
     def _render_chat_records(self):
