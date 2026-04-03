@@ -776,3 +776,35 @@ class IMClientAPI:
                 detail = resp.text
             return False, detail
         return True, resp.json()
+
+    def get_message_statuses(self, message_ids):
+        if not self.token:
+            return False, "Not authenticated"
+        ids = []
+        for message_id in message_ids or []:
+            try:
+                number = int(message_id)
+            except Exception:
+                continue
+            if number > 0:
+                ids.append(number)
+        if not ids:
+            return True, []
+        payload = {"message_ids": ids}
+        try:
+            resp = requests.post(
+                f"{API_BASE_URL}/messages/status",
+                json=payload,
+                headers=self._auth_headers(),
+                timeout=5,
+                verify=False,
+            )
+        except requests.RequestException as e:
+            return False, f"Network error: {e}"
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            return False, detail
+        return True, resp.json().get("statuses", [])

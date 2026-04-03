@@ -213,6 +213,20 @@ class MessageAckResponse(BaseModel):
     status: str
 
 
+class MessageStatusRequest(BaseModel):
+    message_ids: List[int] = Field(default_factory=list, max_length=200)
+
+
+class MessageStatusEntry(BaseModel):
+    message_id: int
+    status: str
+    delivered_at: Optional[datetime] = None
+
+
+class MessageStatusResponse(BaseModel):
+    statuses: List[MessageStatusEntry]
+
+
 class PrekeyUploadEntry(BaseModel):
     prekey_id: str = Field(min_length=8, max_length=128)
     prekey_public: str = Field(min_length=16, max_length=4096)

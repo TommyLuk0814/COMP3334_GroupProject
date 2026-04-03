@@ -524,7 +524,24 @@ class HomePage(tk.Frame):
                     expires_at_ts = float(expires_at_ts) if expires_at_ts is not None else None
                 except Exception:
                     expires_at_ts = None
-                cleaned_records.append({"text": text, "expires_at_ts": expires_at_ts})
+                outgoing = bool(record.get("outgoing", False))
+                message_id = record.get("message_id")
+                try:
+                    message_id = int(message_id) if message_id is not None else None
+                except Exception:
+                    message_id = None
+                delivery_status = str(record.get("delivery_status", "")).strip().lower() if outgoing else ""
+                if outgoing and delivery_status not in ("sent", "delivered"):
+                    delivery_status = "sent"
+                cleaned_records.append(
+                    {
+                        "text": text,
+                        "expires_at_ts": expires_at_ts,
+                        "outgoing": outgoing,
+                        "message_id": message_id,
+                        "delivery_status": delivery_status,
+                    }
+                )
             if cleaned_records:
                 loaded[friend] = cleaned_records
         return loaded
@@ -552,17 +569,79 @@ class HomePage(tk.Frame):
         except Exception:
             return None
 
-    def _append_chat_line(self, friend, text, expires_at=None):
+    def _append_chat_line(self, friend, text, expires_at=None, outgoing=False, message_id=None, delivery_status=""):
         if not friend:
             return
+        normalized_status = str(delivery_status or "").strip().lower() if outgoing else ""
+        if outgoing and normalized_status not in ("sent", "delivered"):
+            normalized_status = "sent"
+        try:
+            normalized_message_id = int(message_id) if message_id is not None else None
+        except Exception:
+            normalized_message_id = None
         self._chat_records_by_friend.setdefault(friend, []).append(
             {
                 "text": text,
                 "expires_at_ts": self._to_expiry_timestamp(expires_at),
+                "outgoing": bool(outgoing),
+                "message_id": normalized_message_id,
+                "delivery_status": normalized_status,
             }
         )
         self._save_chat_history()
         self._render_chat_records()
+
+    def _render_record_text(self, record):
+        text = str(record.get("text", ""))
+        if not bool(record.get("outgoing", False)):
+            return text
+        status = str(record.get("delivery_status", "")).strip().lower()
+        if status == "delivered":
+            return f"{text} [Delivered]"
+        return f"{text} [Sent]"
+
+    def _refresh_outgoing_delivery_statuses(self):
+        pending_message_ids = []
+        id_to_records = {}
+        for records in self._chat_records_by_friend.values():
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                if not bool(record.get("outgoing", False)):
+                    continue
+                if str(record.get("delivery_status", "")).strip().lower() == "delivered":
+                    continue
+                message_id = record.get("message_id")
+                if not isinstance(message_id, int) or message_id <= 0:
+                    continue
+                pending_message_ids.append(message_id)
+                id_to_records.setdefault(message_id, []).append(record)
+
+        if not pending_message_ids:
+            return
+
+        ok, statuses = self.controller.api.get_message_statuses(pending_message_ids)
+        if not ok:
+            return
+
+        changed = False
+        for item in statuses:
+            try:
+                message_id = int(item.get("message_id", 0))
+            except Exception:
+                continue
+            status = str(item.get("status", "")).strip().lower()
+            if status not in ("sent", "delivered"):
+                continue
+            for record in id_to_records.get(message_id, []):
+                old_status = str(record.get("delivery_status", "")).strip().lower()
+                if old_status != status:
+                    record["delivery_status"] = status
+                    changed = True
+
+        if changed:
+            self._save_chat_history()
+            self._render_chat_records()
 
     def _render_chat_records(self):
         self._prune_expired_chat_records()
@@ -573,7 +652,7 @@ class HomePage(tk.Frame):
             return
         for line in self._chat_records_by_friend.get(self._active_chat_friend, []):
             if isinstance(line, dict):
-                self.chat_text.insert(tk.END, f"{line.get('text', '')}\n")
+                self.chat_text.insert(tk.END, f"{self._render_record_text(line)}\n")
             else:
                 self.chat_text.insert(tk.END, f"{line}\n")
         self.chat_text.see(tk.END)
@@ -1024,7 +1103,15 @@ class HomePage(tk.Frame):
             messagebox.showerror("Send failed", str(result))
             return
 
-        self._append_chat_line(peer, f"{self.current_user}(You): {text}", expires_at=expires_at)
+        sent_message_id = result.get("message_id") if isinstance(result, dict) else None
+        self._append_chat_line(
+            peer,
+            f"{self.current_user}(You): {text}",
+            expires_at=expires_at,
+            outgoing=True,
+            message_id=sent_message_id,
+            delivery_status="sent",
+        )
         self.chat_input.delete(0, tk.END)
 
     def _poll_messages_loop(self):
@@ -1081,6 +1168,7 @@ class HomePage(tk.Frame):
                     self._append_chat_line(sender, f"{sender}: {plaintext}", expires_at=msg.get("expires_at"))
                     self._seen_message_ids.add(msg_id)
                     self.controller.api.ack_message(msg_id)
+            self._refresh_outgoing_delivery_statuses()
         except Exception as e:
             self._append_system_message(f"Receive loop recovered from error: {e}")
 

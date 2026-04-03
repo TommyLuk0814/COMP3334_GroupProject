@@ -50,9 +50,9 @@ This project uses a signed X25519 prekey bootstrap to support offline first-mess
 - [x] R14 Request lifecycle
 - [x] R15 Blocking / removing (requests and new outbound messages are blocked; queued-before-block ciphertext is dropped and poll excludes blocked pairs)
 - [x] R16 Default anti-spam control
-- [ ] R17 Minimum delivery states (partial: server returns sent/delivered states, sender-side delivered status UI is pending)
-- [ ] R18 Define "Delivered" semantics (partial: delivered currently mapped to recipient ACK endpoint)
-- [ ] R19 Metadata disclosure statement
+- [x] R17 Minimum delivery states (sender UI shows Sent/Delivered states; server exposes status lookup for sender-owned message ids)
+- [x] R18 Define "Delivered" semantics (Delivered means recipient client ACKed message via /messages/{id}/ack)
+- [x] R19 Metadata disclosure statement (documented below)
 - [x] R20 Offline ciphertext queue (including first-message support via prekey claim when recipient is offline)
 - [x] R21 Retention and cleanup (messages are retained until expiry, then cleaned up best-effort on the client and server)
 - [x] R22 Duplicate/replay robustness (client persists a per-sender-device replay window and ACKs duplicate ciphertexts without re-rendering them)
@@ -136,4 +136,4 @@ This project uses a signed X25519 prekey bootstrap to support offline first-mess
     - (R25) Paging / incremental loading 
         - Implement basic pagination or incremental loading to avoid loading all history at once. 
 9. UI 
-    - To reduce your workload, your client application does not need a beautiful Graphical User Interface (GUI). A GUI that is necessary to be used or a CLI client is fine.  
+    - To reduce your workload, your client application does not need a beautiful Graphical User Interface (GUI). A GUI that is necessary to be used or a CLI client is fine.

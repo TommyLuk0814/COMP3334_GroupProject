@@ -998,5 +998,33 @@ class DB:
             self.conn.commit()
             return "ok"
 
+    def list_message_delivery_statuses_for_sender(self, sender_user: str, message_ids: List[int]) -> List[sqlite3.Row]:
+        if not message_ids:
+            return []
+        normalized_ids = []
+        seen = set()
+        for message_id in message_ids:
+            try:
+                number = int(message_id)
+            except Exception:
+                continue
+            if number <= 0 or number in seen:
+                continue
+            seen.add(number)
+            normalized_ids.append(number)
+        if not normalized_ids:
+            return []
+
+        placeholders = ",".join(["?"] * len(normalized_ids))
+        params = [sender_user] + normalized_ids
+        with self.lock:
+            query = (
+                "SELECT id, delivered_at "
+                "FROM messages "
+                "WHERE sender_user = ? "
+                f"AND id IN ({placeholders})"
+            )
+            return self.conn.execute(query, params).fetchall()
+
 
 db = DB(DB_PATH)

@@ -44,6 +44,9 @@ from schemas import (
     PollMessagesResponse,
     MessageEnvelope,
     MessageAckResponse,
+    MessageStatusRequest,
+    MessageStatusResponse,
+    MessageStatusEntry,
     UploadKeyRequest,
     UploadKeyResponse,
     SendMessageRequest,
@@ -560,6 +563,22 @@ def ack_message(message_id: int, session: Dict[str, str] = Depends(get_current_s
     if result == "forbidden":
         raise HTTPException(status_code=403, detail="Not allowed to ack this message")
     return MessageAckResponse(message_id=message_id, status="delivered")
+
+
+@app.post("/messages/status", response_model=MessageStatusResponse)
+def message_status(req: MessageStatusRequest, session: Dict[str, str] = Depends(get_current_session)):
+    rows = db.list_message_delivery_statuses_for_sender(session["username"], req.message_ids)
+    statuses = []
+    for row in rows:
+        delivered_at_raw = row["delivered_at"]
+        statuses.append(
+            MessageStatusEntry(
+                message_id=int(row["id"]),
+                status="delivered" if delivered_at_raw else "sent",
+                delivered_at=datetime.fromisoformat(str(delivered_at_raw)) if delivered_at_raw else None,
+            )
+        )
+    return MessageStatusResponse(statuses=statuses)
 
 
 @app.post("/keys", response_model=UploadKeyResponse)
