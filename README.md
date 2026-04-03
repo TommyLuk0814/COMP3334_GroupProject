@@ -30,6 +30,9 @@ Notes:
 - Use different `--profile` values when running multiple local clients on one machine.
 - Each profile has isolated local data (identity keys, device ID, known contact keys, and prekeys).
 
+## R7 Protocol Summary
+This project uses a signed X25519 prekey bootstrap to support offline first-message delivery under the honest-but-curious server model. The server only stores and relays ciphertext and public prekey material, while private keys stay on the client. When the recipient is offline, the sender can claim a one-time prekey, establish a shared session key, and send the first encrypted message without exposing plaintext to the server.
+
 ## Implementation Status Checklist
 - [x] R1 Registration
 - [x] R2 Login with Password + OTP
