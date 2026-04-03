@@ -451,6 +451,7 @@ class HomePage(tk.Frame):
             )
             self._friend_list_usernames = sorted_usernames
             for friend_name in sorted_usernames:
+                trust_state = self._refresh_contact_key_trust(friend_name, prompt=False)
                 unread = int(self._unread_counts.get(friend_name, 0) or 0)
                 last_ts = self._conversation_last_activity_ts(friend_name)
                 if last_ts > 0:
@@ -460,6 +461,8 @@ class HomePage(tk.Frame):
                     label = friend_name
                 if unread > 0:
                     label = f"{label} ({unread})"
+                if trust_state.get("changed"):
+                    label = f"{label} [Key changed]"
                 self.friend_listbox.insert(tk.END, label)
 
             if self._active_chat_friend and self._active_chat_friend in sorted_usernames:
@@ -528,6 +531,79 @@ class HomePage(tk.Frame):
             if label == selected_label:
                 return amount * seconds
         return None
+
+    def _fingerprints_from_keys(self, keys):
+        fingerprints = []
+        seen = set()
+        if not isinstance(keys, list):
+            return fingerprints
+        for entry in keys:
+            fingerprint = ""
+            if isinstance(entry, dict):
+                fingerprint = str(entry.get("fingerprint", "")).strip()
+            else:
+                fingerprint = str(entry).strip()
+            if not fingerprint or fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            fingerprints.append(fingerprint)
+        return sorted(fingerprints)
+
+    def _refresh_contact_key_trust(self, peer, prompt=False):
+        api = self.controller.api
+        result = {"changed": False, "fingerprints": [], "verified": False}
+        if not peer:
+            return result
+
+        keys = api.get_public_key(peer)
+        if not keys:
+            return result
+
+        current_fps = self._fingerprints_from_keys(keys)
+        result["fingerprints"] = current_fps
+        verified = api.get_verified_fingerprints(peer)
+        result["verified"] = bool(current_fps) and (set(verified) == set(current_fps))
+        changed = api.detect_key_change(peer, keys)
+        if changed:
+            api.mark_key_change_blocked(peer)
+
+        if api.is_key_change_blocked(peer):
+            if set(verified) == set(current_fps) and current_fps:
+                api.clear_key_change_block(peer)
+                result["verified"] = True
+            else:
+                result["changed"] = True
+                return result
+
+        result["changed"] = False
+
+        return result
+
+    def _ensure_peer_trusted(self, peer, prompt=True, confirm_send_on_key_change=False):
+        trust_state = self._refresh_contact_key_trust(peer, prompt=prompt)
+        if not trust_state.get("fingerprints"):
+            if prompt:
+                messagebox.showinfo("No keys", f"{peer} has no published identity keys yet.")
+            return False
+        if trust_state.get("changed") and prompt and confirm_send_on_key_change:
+            return messagebox.askyesno(
+                "Key Changed",
+                (
+                    f"{peer}'s identity key has changed and is not re-verified yet.\n"
+                    "Do you still want to send this message?"
+                ),
+                parent=self,
+            )
+        if (not trust_state.get("changed")) and (not trust_state.get("verified")) and prompt and confirm_send_on_key_change:
+            return messagebox.askyesno(
+                "Contact Not Verified",
+                (
+                    f"{peer}'s identity key has not been verified yet.\n"
+                    "Do you still want to send this message?"
+                ),
+                parent=self,
+            )
+        return True
 
     def _prune_expired_chat_records(self):
         now_ts = time.time()
@@ -903,6 +979,7 @@ class HomePage(tk.Frame):
             return
 
         verified = api.get_verified_fingerprints(peer)
+        trust_state = self._refresh_contact_key_trust(peer, prompt=False)
 
         dialog = tk.Toplevel(self)
         dialog.title(f"Security for {peer}")
@@ -911,6 +988,23 @@ class HomePage(tk.Frame):
 
         outer = ttk.Frame(dialog, padding=10)
         outer.pack(fill="both", expand=True)
+
+        if trust_state.get("changed"):
+            ttk.Label(
+                outer,
+                text=(
+                    "Warning: this contact's identity key changed.\n"
+                    "Messaging is still allowed, but verify the new fingerprint if you want to trust it."
+                ),
+                foreground="red",
+                justify="left",
+            ).pack(anchor="w", pady=(0, 8))
+        elif verified:
+            ttk.Label(
+                outer,
+                text="This contact has locally verified fingerprints saved on this profile.",
+                justify="left",
+            ).pack(anchor="w", pady=(0, 8))
 
         ttk.Label(
             outer,
@@ -1089,6 +1183,8 @@ class HomePage(tk.Frame):
         self.controller.api.is_replay_message(sender, sender_device, sender_counter)
 
     def _initiate_session_with_peer(self, peer):
+        if not self._ensure_peer_trusted(peer):
+            return False
         if self.controller.crypto.has_session_with(peer):
             return True
         keys = self.controller.api.get_public_key(peer)
@@ -1143,6 +1239,8 @@ class HomePage(tk.Frame):
                 initiator_pem = self._find_identity_key_for_device(initiator, initiator_device)
                 if not initiator_pem:
                     continue
+                if not self._ensure_peer_trusted(initiator, prompt=False):
+                    continue
                 try:
                     responder_pub, responder_sig, _ = crypto.handle_incoming_handshake(
                         handshake=handshake,
@@ -1172,6 +1270,8 @@ class HomePage(tk.Frame):
                 recipient_pem = self._find_identity_key_for_device(recipient, recipient_device)
                 if not recipient_pem:
                     continue
+                if not self._ensure_peer_trusted(recipient, prompt=False):
+                    continue
                 try:
                     shared_key = crypto.finalize_initiator_handshake(
                         handshake=handshake,
@@ -1193,6 +1293,8 @@ class HomePage(tk.Frame):
         peer = self._active_chat_friend
         if not peer:
             messagebox.showwarning("Select friend", "Choose someone in the friend list first.")
+            return
+        if not self._ensure_peer_trusted(peer, confirm_send_on_key_change=True):
             return
         counter = int(self.controller.api.next_sender_counter())
         ttl_seconds = self._selected_ttl_seconds() 

@@ -20,6 +20,7 @@ class IMClientAPI:
         self.device_id = self._load_or_create_device_id()
         self.known_keys_path = self.profile_dir / ".known_contact_keys.json"
         self.verified_keys_path = self.profile_dir / ".verified_contact_keys.json"
+        self.key_change_state_path = self.profile_dir / ".key_change_state.json"
         self.replay_state_path = self.profile_dir / ".message_replay_state.json"
         self.sender_counter_state_path = self.profile_dir / ".sender_counter_state.json"
         self.chat_history_dir = self.profile_dir / ".chat_history"
@@ -186,13 +187,43 @@ class IMClientAPI:
         return True, resp.json()
 
     def detect_key_change(self, username, remote_keys):
+        key = str(username).strip().lower()
         known = self._load_known_keys()
-        remote_fingerprints = sorted(k.get("fingerprint", "") for k in remote_keys)
-        previous = known.get(username, [])
-        has_changed = previous and previous != remote_fingerprints
-        known[username] = remote_fingerprints
+        remote_fingerprints = self._normalize_fingerprints(remote_keys)
+        previous = known.get(key)
+        if not previous:
+            known[key] = remote_fingerprints
+            self._save_known_keys(known)
+            return False
+        changed = sorted(previous) != remote_fingerprints
+        if changed:
+            known[key] = remote_fingerprints
+            self._save_known_keys(known)
+        return changed
+
+    def remember_known_fingerprints(self, username, fingerprints):
+        key = str(username).strip().lower()
+        known = self._load_known_keys()
+        known[key] = self._normalize_fingerprints(fingerprints)
         self._save_known_keys(known)
-        return has_changed
+
+    def _normalize_fingerprints(self, values):
+        fingerprints = []
+        seen = set()
+        if isinstance(values, list):
+            iterable = values
+        else:
+            iterable = []
+        for item in iterable:
+            if isinstance(item, dict):
+                fingerprint = str(item.get("fingerprint", "")).strip()
+            else:
+                fingerprint = str(item).strip()
+            if not fingerprint or fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            fingerprints.append(fingerprint)
+        return sorted(fingerprints)
 
     def _load_known_keys(self):
         if not self.known_keys_path.exists():
@@ -204,6 +235,43 @@ class IMClientAPI:
 
     def _save_known_keys(self, data):
         self.known_keys_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def _load_key_change_state(self):
+        if not self.key_change_state_path.exists():
+            return {"blocked": {}}
+        try:
+            data = json.loads(self.key_change_state_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                blocked = data.get("blocked", {})
+                if isinstance(blocked, dict):
+                    return {"blocked": blocked}
+            return {"blocked": {}}
+        except Exception:
+            return {"blocked": {}}
+
+    def _save_key_change_state(self, data):
+        self.key_change_state_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def is_key_change_blocked(self, username):
+        key = str(username).strip().lower()
+        state = self._load_key_change_state()
+        blocked = state.get("blocked", {})
+        return bool(blocked.get(key, False))
+
+    def mark_key_change_blocked(self, username):
+        key = str(username).strip().lower()
+        state = self._load_key_change_state()
+        blocked = state.setdefault("blocked", {})
+        blocked[key] = True
+        self._save_key_change_state(state)
+
+    def clear_key_change_block(self, username):
+        key = str(username).strip().lower()
+        state = self._load_key_change_state()
+        blocked = state.setdefault("blocked", {})
+        if key in blocked:
+            blocked.pop(key, None)
+            self._save_key_change_state(state)
 
     def _load_verified_keys(self):
         if not self.verified_keys_path.exists():
@@ -236,8 +304,11 @@ class IMClientAPI:
         """
         key = str(username).strip().lower()
         store = self._load_verified_keys()
-        store[key] = sorted(set(str(fp) for fp in fingerprints))
+        normalized = self._normalize_fingerprints(fingerprints)
+        store[key] = normalized
         self._save_verified_keys(store)
+        self.remember_known_fingerprints(key, normalized)
+        self.clear_key_change_block(key)
 
     def _load_replay_state(self):
         if not self.replay_state_path.exists():

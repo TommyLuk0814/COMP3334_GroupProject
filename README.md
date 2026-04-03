@@ -16,8 +16,8 @@
 - [x] R2 Login with Password + OTP
 - [x] R3 Logout / session invalidation
 - [x] R4 Per-device identity keypair
-- [ ] R5 Fingerprint / verification UI (partial: backend fingerprint/public key endpoints exist, full client fingerprint/verified UX pending)
-- [ ] R6 Key change detection (partial: key change detection helper exists, full warning/block UI flow pending)
+- [x] R5 Fingerprint / verification UI
+- [x] R6 Key change detection
 - [x] R7 Secure session establishment
 - [x] R8 Message encryption and authentication
 - [x] R9 Replay protection / de-duplication
