@@ -242,7 +242,7 @@ encrypted local storage).
 - Minimal sensitive logging: do not log secrets; disable verbose debug logs by default. 
 - Basic abuse controls: rate limit registration/login and friend requests.
 
-## Troubleshooting (Optional but Recommended)
+## Troubleshooting 
 
 ### Only "Sent" status, no delivery confirmation
 
