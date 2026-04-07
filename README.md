@@ -3,7 +3,7 @@
 ## Setup
 1. Install dependencies:
     - `pip install -r requirements.txt`
-2. Generate TLS certificate and key (for localhost, no OpenSSL required):
+2. Generate TLS certificate and key:
     - `mkdir server/certs`
     - `py server/generate_dev_cert.py`
 
@@ -88,33 +88,33 @@ the client as a desktop application and the server using any network stack
 (HTTP/WebSocket/gRPC,  etc.).  The  server  is  assumed  to  be  honest-but-curious:  it  follows  the 
 protocol correctly but may inspect and analyze all data it can access. 
 Your system must support the following required features: 
-• E2EE 1:1 (peer-to-peer) private chat 
-• Timed self-destruct messages 
-• User registration and login (password + OTP) 
-• Friend requests / contact management (request → accept/decline) 
-• Offline messaging (ciphertext store-and-forward) 
-• Message delivery status (at least Sent and Delivered) 
-• Conversation list and unread counters
+- E2EE 1:1 (peer-to-peer) private chat
+- Timed self-destruct messages
+- User registration and login (password + OTP) 
+- Friend requests / contact management (request → accept/decline) 
+- Offline messaging (ciphertext store-and-forward) 
+- Message delivery status (at least Sent and Delivered) 
+- Conversation list and unread counters
 
 ## Threat Model 
 Your design must explicitly assume the following adversaries: 
-• Server is honest-but-curious (HbC): it follows your protocol but may inspect databases, logs, 
+- Server is honest-but-curious (HbC): it follows your protocol but may inspect databases, logs, 
 and all application-layer data, and perform traffic analysis (timestamps, message sizes, 
 contact graph). 
-• Network attacker (external): may observe traffic and attempt Man-In-The-Middle (MTIM) if 
+- Network attacker (external): may observe traffic and attempt Man-In-The-Middle (MTIM) if 
 transport security is misconfigured; may cause packet duplication/reordering at lower layers. 
-• Malicious users/clients: may create accounts, spam friend requests, send malformed 
+- Malicious users/clients: may create accounts, spam friend requests, send malformed 
 messages, replay old ciphertexts, or attempt impersonation at the UI layer. 
 
 ## Security Goals 
 Given the threat model above, your system must provide the following security guarantees: 
-• End-to-end confidentiality against the server: the server must not be able to decrypt message 
-contents. 
-• End-to-end integrity and authentication between users: attackers should not forge/modify 
+- End-to-end confidentiality against the server: the server must not be able to decrypt message 
+contents.
+- End-to-end integrity and authentication between users: attackers should not forge/modify 
 messages undetectably for a conversation they are not part of. 
-• Replay resistance / de-duplication: duplicated or replayed ciphertext must not be accepted as 
+- Replay resistance / de-duplication: duplicated or replayed ciphertext must not be accepted as 
 new messages. 
-• Key change visibility: if a contact’s identity key changes, the user must be warned and your 
+- Key change visibility: if a contact’s identity key changes, the user must be warned and your 
 policy must be explained.
 
 ## Library usage 
@@ -128,8 +128,8 @@ is still required to defend against network attackers and credential theft.
 
 ## System Architecture 
 Your system must include at least: 
-• Client application(s) implementing the E2EE logic and UI. 
-• Server handling registration/authentication, friend requests, public key distribution (or 
+- Client application(s) implementing the E2EE logic and UI. 
+- Server handling registration/authentication, friend requests, public key distribution (or 
 equivalent), message relay, and offline ciphertext queue storage. 
 The server must never have access to the keys required to decrypt message contents. The server 
 may store ciphertext for offline delivery. 
@@ -213,10 +213,10 @@ may store ciphertext for offline delivery.
     - To reduce your workload, your client application does not need a beautiful Graphical User Interface (GUI). A GUI that is necessary to be used or a CLI client is fine.
 
 ## Security Requirements 
-• Secure randomness: keys/nonces come from a cryptographically secure RNG. 
-• Secure local storage: protect private keys and protocol state at rest (e.g., OS keychain or 
+- Secure randomness: keys/nonces come from a cryptographically secure RNG. 
+- Secure local storage: protect private keys and protocol state at rest (e.g., OS keychain or 
 encrypted local storage). 
-• Input validation: reject malformed messages and enforce reasonable size limits. 
-• Transport security: use TLS for client-server communication. 
-• Minimal sensitive logging: do not log secrets; disable verbose debug logs by default. 
-• Basic abuse controls: rate limit registration/login and friend requests.
+- Input validation: reject malformed messages and enforce reasonable size limits. 
+- Transport security: use TLS for client-server communication. 
+- Minimal sensitive logging: do not log secrets; disable verbose debug logs by default. 
+- Basic abuse controls: rate limit registration/login and friend requests.
