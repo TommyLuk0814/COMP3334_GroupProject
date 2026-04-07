@@ -20,3 +20,16 @@ Thumbs.db
 server/secure_im.db
 client/.client_profiles/
 client/.identity_profiles/
+
+# TLS certificates and keys (locally generated for development)
+server/certs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Log files
+*.log

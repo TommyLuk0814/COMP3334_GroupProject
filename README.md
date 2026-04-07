@@ -3,11 +3,17 @@
 ## Setup
 1. Install dependencies:
     - `pip install -r requirements.txt`
+2. Generate TLS certificate and key (for localhost, no OpenSSL required):
+    - `mkdir server/certs`
+    - `py server/generate_dev_cert.py`
 
 ## Run
 1. Start server:
     - `py server/server.py`
 2. Start client (new terminal):
+    - `$env:IM_TLS_CA_CERT="server/certs/localhost.crt"` (PowerShell)
+    - `echo $env:IM_TLS_CA_CERT`
+    The output should be: server/certs/localhost.crt
     - `py client/main.py --profile user1`
     - `py client/main.py --profile user2`
 
@@ -64,6 +70,60 @@
 - R23 Conversation list: Friend list is sorted by most recent conversation activity and shows last activity timestamp.
 - R24 Unread counters: Per-conversation unread counts are maintained, displayed, persisted, and cleared on opening that conversation.
 - R25 Paging / incremental loading: Chat window shows recent history first and loads older messages incrementally via `Load Older Messages`; page size is configurable in `client/config.py`.
+
+## Project Overview 
+In  this  project,  your  team  will  design  and  implement  a  secure  instant  messaging  (IM)  tool  with 
+end-to-end encryption (E2EE). This project focuses on 1:1 private messaging only (no group chat 
+requirement)  and  does  not  require  multi-device  message  synchronization.  You  may  implement 
+the client as a desktop application and the server using any network stack 
+(HTTP/WebSocket/gRPC,  etc.).  The  server  is  assumed  to  be  honest-but-curious:  it  follows  the 
+protocol correctly but may inspect and analyze all data it can access. 
+Your system must support the following required features: 
+• E2EE 1:1 (peer-to-peer) private chat 
+• Timed self-destruct messages 
+• User registration and login (password + OTP) 
+• Friend requests / contact management (request → accept/decline) 
+• Offline messaging (ciphertext store-and-forward) 
+• Message delivery status (at least Sent and Delivered) 
+• Conversation list and unread counters
+
+## Threat Model 
+Your design must explicitly assume the following adversaries: 
+• Server is honest-but-curious (HbC): it follows your protocol but may inspect databases, logs, 
+and all application-layer data, and perform traffic analysis (timestamps, message sizes, 
+contact graph). 
+• Network attacker (external): may observe traffic and attempt Man-In-The-Middle (MTIM) if 
+transport security is misconfigured; may cause packet duplication/reordering at lower layers. 
+• Malicious users/clients: may create accounts, spam friend requests, send malformed 
+messages, replay old ciphertexts, or attempt impersonation at the UI layer. 
+
+## Security Goals 
+Given the threat model above, your system must provide the following security guarantees: 
+• End-to-end confidentiality against the server: the server must not be able to decrypt message 
+contents. 
+• End-to-end integrity and authentication between users: attackers should not forge/modify 
+messages undetectably for a conversation they are not part of. 
+• Replay resistance / de-duplication: duplicated or replayed ciphertext must not be accepted as 
+new messages. 
+• Key change visibility: if a contact’s identity key changes, the user must be warned and your 
+policy must be explained.
+
+## Library usage 
+You may choose any programming language and cryptographic libraries. However, you must use 
+well-reviewed libraries for cryptographic primitives (encryption, signatures, key agreement, 
+hashing, random number generation). Do not implement cryptographic primitives from scratch. 
+
+## Transport security 
+Use TLS for client-server connections. E2EE protects message content from the server, but TLS 
+is still required to defend against network attackers and credential theft.
+
+## System Architecture 
+Your system must include at least: 
+• Client application(s) implementing the E2EE logic and UI. 
+• Server handling registration/authentication, friend requests, public key distribution (or 
+equivalent), message relay, and offline ciphertext queue storage. 
+The server must never have access to the keys required to decrypt message contents. The server 
+may store ciphertext for offline delivery. 
 
 ## Functional Requirements
 1. Accounts & Authentication 
@@ -142,3 +202,12 @@
         - Implement basic pagination or incremental loading to avoid loading all history at once. 
 9. UI 
     - To reduce your workload, your client application does not need a beautiful Graphical User Interface (GUI). A GUI that is necessary to be used or a CLI client is fine.
+
+## Security Requirements 
+• Secure randomness: keys/nonces come from a cryptographically secure RNG. 
+• Secure local storage: protect private keys and protocol state at rest (e.g., OS keychain or 
+encrypted local storage). 
+• Input validation: reject malformed messages and enforce reasonable size limits. 
+• Transport security: use TLS for client-server communication. 
+• Minimal sensitive logging: do not log secrets; disable verbose debug logs by default. 
+• Basic abuse controls: rate limit registration/login and friend requests.
