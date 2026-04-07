@@ -71,6 +71,15 @@
 - R24 Unread counters: Per-conversation unread counts are maintained, displayed, persisted, and cleared on opening that conversation.
 - R25 Paging / incremental loading: Chat window shows recent history first and loads older messages incrementally via `Load Older Messages`; page size is configurable in `client/config.py`.
 
+## Security Implementation (Requirements Compliance)
+- **Secure randomness**: All cryptographic keys (Ed25519 identity keys, X25519 session keys) and nonces are generated using `cryptography.hazmat` with `os.urandom()`, which is cryptographically secure on all platforms.
+- **Secure local storage**: Private keys are encrypted at rest using `cryptography.fernet.Fernet` (AES-128-CBC with authentication). Local profile directories (`.client_profiles/`, `.identity_profiles/`) store encrypted key material and fingerprint state on disk.
+- **Input validation**: Server validates all JSON payloads using Pydantic schemas; messages are size-limited; malformed prekey bundles or encrypted payloads are rejected with explicit errors.
+- **Transport security**: All client-server communication uses TLS 1.2+ (HTTPS on port 8443). Self-signed certificates are generated via `server/generate_dev_cert.py` with proper Subject Alternative Names (localhost, 127.0.0.1, ::1); clients verify certificates using local CA cert or skip with `IM_TLS_INSECURE=1` (dev-only).
+- **Minimal sensitive logging**: Debug-level logs do not include private keys, plaintext messages, or session secrets. Errors are logged at INFO level with sanitized context only.
+- **Basic abuse controls**: Rate limiting enforced on `/register`, `/login/password`, and `/send_friend_request` endpoints (max 10 reqs/minute per IP/user). Blocked user pairs cannot interact; duplicate requests are ignored.
+- **E2EE principles**: Message content confidentiality is enforced via AES-GCM with per-message random nonces; AAD includes sender/recipient/counter/TTL to bind integrity to conversation context. Server never has access to decryption keys.
+
 ## Project Overview 
 In  this  project,  your  team  will  design  and  implement  a  secure  instant  messaging  (IM)  tool  with 
 end-to-end encryption (E2EE). This project focuses on 1:1 private messaging only (no group chat 
