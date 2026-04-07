@@ -17,6 +17,27 @@
     - `py client/main.py --profile user1`
     - `py client/main.py --profile user2`
 
+## Changelog
+
+### Improvements
+
+- **Improved message delivery logic** – Messages are now delivered to the recipient's current active device, reducing the risk of being sent to an outdated device.
+
+- **Default TTL set to 0** – Users going offline and coming back online can still receive messages as expected.
+
+- **Better handling of decryption failures** – Clearer error prompts and automatic session re-establishment attempts.
+
+- **Key changed scenario** – Added clear guidance for users when a key change is detected.
+
+- **Enhanced error messaging for registration and network issues** – More actionable error prompts.
+
+- **Local loopback now bypasses system proxy by default** – Improves reliability for local communication.
+
+### Technical Notes
+
+- No protocol or database schema changes.
+- A restart of both backend and client is required for the changes to take effect.
+
 ## Implementation Status Checklist
 - [x] R1 Registration
 - [x] R2 Login with Password + OTP
@@ -220,3 +241,28 @@ encrypted local storage).
 - Transport security: use TLS for client-server communication. 
 - Minimal sensitive logging: do not log secrets; disable verbose debug logs by default. 
 - Basic abuse controls: rate limit registration/login and friend requests.
+
+## Troubleshooting (Optional but Recommended)
+
+### Only "Sent" status, no delivery confirmation
+
+- Ensure TTL is set to `0` (default).
+- Confirm the recipient is online.
+- If needed, ask the recipient to send you a message first or re-login to refresh their device info.
+
+### Unable to decrypt messages
+
+- Keep both parties online to allow automatic session re-establishment.
+- If the recipient changed devices, ask them to re-login to upload their pre-key bundle.
+
+### "Key changed" warning
+
+- Compare fingerprints in **Keys** / **Fingerprint** section.
+- After confirming the key is correct, mark it as verified or proceed to send.
+
+### Port already in use
+
+Run the following command to find the process ID (PID) listening on port `8000`:
+
+```bash
+lsof -nP -iTCP:8000 -sTCP:LISTEN
