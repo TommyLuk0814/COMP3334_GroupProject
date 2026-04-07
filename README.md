@@ -71,7 +71,7 @@
 - R24 Unread counters: Per-conversation unread counts are maintained, displayed, persisted, and cleared on opening that conversation.
 - R25 Paging / incremental loading: Chat window shows recent history first and loads older messages incrementally via `Load Older Messages`; page size is configurable in `client/config.py`.
 
-## Security Implementation (Requirements Compliance)
+## Security Implementation
 - **Secure randomness**: All cryptographic keys (Ed25519 identity keys, X25519 session keys) and nonces are generated using `cryptography.hazmat` with `os.urandom()`, which is cryptographically secure on all platforms.
 - **Secure local storage**: Private keys are encrypted at rest using `cryptography.fernet.Fernet` (AES-128-CBC with authentication). Local profile directories (`.client_profiles/`, `.identity_profiles/`) store encrypted key material and fingerprint state on disk.
 - **Input validation**: Server validates all JSON payloads using Pydantic schemas; messages are size-limited; malformed prekey bundles or encrypted payloads are rejected with explicit errors.
