@@ -94,16 +94,24 @@ class SecureIMApp(tk.Tk):
             messagebox.showerror("Error", "Passwords do not match")
             return False
 
-        success, result = self.api.register(username, password)
-        if success:
-            self.show_page("RegisterOTPPage")
-            otp_page = self.frames["RegisterOTPPage"]
-            otp_page.show_qr(
-                username,
-                result["otp_secret"],
-                result.get("contact_code") or "",
-            )
-            return True
+        try:
+            success, result = self.api.register(username, password)
+        except Exception as e:
+            messagebox.showerror("Error", f"Unexpected error during registration: {e}")
+            return False
+        if success and isinstance(result, dict) and "otp_secret" in result:
+            try:
+                self.show_page("RegisterOTPPage")
+                otp_page = self.frames["RegisterOTPPage"]
+                otp_page.show_qr(
+                    username,
+                    result.get("otp_secret", ""),
+                    result.get("contact_code") or "",
+                )
+                return True
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to prepare OTP setup: {e}")
+                return False
 
         messagebox.showerror("Error", result)
         return False
@@ -299,6 +307,7 @@ class HomePage(tk.Frame):
         self._chat_page_size = max(1, int(CHAT_PAGE_SIZE))
         self._friend_list_usernames = []
         self._active_chat_friend = None
+        self._handshake_retry_peers = set()
         self._suspend_friend_select_event = False
         self._polling_active = False
         self._social_refresh_interval_ms = 3000
@@ -1334,6 +1343,15 @@ class HomePage(tk.Frame):
             messagebox.showwarning("Select friend", "Choose someone in the friend list first.")
             return
         if not self._ensure_peer_trusted(peer, confirm_send_on_key_change=True):
+            messagebox.showinfo(
+                "Key Changed",
+                (
+                    f"{peer}'s identity key changed.\n"
+                    "Open 'Keys / Fingerprint', compare fingerprints via a trusted channel, "
+                    "mark current keys as verified, then resend."
+                ),
+                parent=self,
+            )
             return
         counter = int(self.controller.api.next_sender_counter())
         ttl_seconds = self._selected_ttl_seconds() 
@@ -1357,7 +1375,14 @@ class HomePage(tk.Frame):
                 messagebox.showerror("Encrypt error", str(e))
                 return
         else:
-            ok_bundle, bundle = self.controller.api.claim_prekey_bundle(peer)
+            preferred_device_id = ""
+            try:
+                keys = self.controller.api.get_public_key(peer)
+                if isinstance(keys, list) and keys:
+                    preferred_device_id = str(keys[0].get("device_id", "") or "")
+            except Exception:
+                preferred_device_id = ""
+            ok_bundle, bundle = self.controller.api.claim_prekey_bundle(peer, device_id=preferred_device_id)
             if ok_bundle:
                 try:
                     encrypted = self.controller.crypto.encrypt_message_with_prekey_bundle(
@@ -1469,7 +1494,22 @@ class HomePage(tk.Frame):
                             except Exception:
                                 plaintext = "[Unable to decrypt message]"
                         else:
-                            plaintext = "[Unable to decrypt message]"
+                            reason = "[Unable to decrypt message]"
+                            if str(aad_obj.get("session_mode", "")) == "prekey":
+                                prekey_id = str(aad_obj.get("prekey_id", "")).strip()
+                                if prekey_id:
+                                    local = getattr(self.controller.crypto, "local_prekeys", {})
+                                    entry = local.get(prekey_id)
+                                    if not entry:
+                                        reason = "[Missing prekey for this device. Please log in and ask sender to resend]"
+                                    else:
+                                        dev = str(entry.get("device_id", ""))
+                                        if dev and dev != str(self.controller.api.device_id):
+                                            reason = "[Device mismatch for prekey. Please use the same profile/device and ask sender to resend]"
+                            plaintext = reason
+                            if sender not in self._handshake_retry_peers and not self.controller.crypto.has_session_with(sender):
+                                self._handshake_retry_peers.add(sender)
+                                self._initiate_session_with_peer(sender)
 
                     self._record_received_message(sender, sender_device, sender_counter)
                     self._append_chat_line(sender, f"{sender}: {plaintext}", expires_at=msg.get("expires_at"))
