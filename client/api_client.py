@@ -10,6 +10,9 @@ import requests
 
 API_BASE_URL = os.environ.get("IM_SERVER_URL", "https://127.0.0.1:8443").strip()
 
+os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost,::1")
+os.environ.setdefault("no_proxy", "127.0.0.1,localhost,::1")
+
 
 def _resolve_tls_verify():
     ca_cert = os.environ.get("IM_TLS_CA_CERT", "").strip()

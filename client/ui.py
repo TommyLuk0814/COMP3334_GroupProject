@@ -392,7 +392,7 @@ class HomePage(tk.Frame):
 
         ttl_label = ttk.Label(chat_input_row, text="Destruct after")
         ttl_label.pack(side="left", padx=(0, 8))
-        self.ttl_value_var = tk.StringVar(value="30")
+        self.ttl_value_var = tk.StringVar(value="0")
         self.ttl_value_entry = ttk.Entry(chat_input_row, textvariable=self.ttl_value_var, width=8)
         self.ttl_value_entry.pack(side="left", padx=(0, 8))
         self.ttl_unit_var = tk.StringVar(value=self._ttl_units[0][0])
