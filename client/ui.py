@@ -428,6 +428,25 @@ class HomePage(tk.Frame):
 
     def refresh_social(self):
         api = self.controller.api
+        selected_outgoing_id = None
+        outgoing_sel = self.outgoing_listbox.curselection()
+        if outgoing_sel:
+            idx = int(outgoing_sel[0])
+            if 0 <= idx < len(self._outgoing_request_ids):
+                selected_outgoing_id = self._outgoing_request_ids[idx]
+
+        selected_incoming_id = None
+        incoming_sel = self.request_listbox.curselection()
+        if incoming_sel:
+            idx = int(incoming_sel[0])
+            if 0 <= idx < len(self._incoming_request_ids):
+                selected_incoming_id = self._incoming_request_ids[idx]
+
+        selected_blocked_user = None
+        blocked_sel = self.blocked_listbox.curselection()
+        if blocked_sel:
+            selected_blocked_user = str(self.blocked_listbox.get(int(blocked_sel[0]))).strip()
+
         ok, me = api.get_me()
         if ok:
             code = me.get("contact_code") or ""
@@ -483,6 +502,11 @@ class HomePage(tk.Frame):
             for r in outgoing:
                 self._outgoing_request_ids.append(r.get("id"))
                 self.outgoing_listbox.insert(tk.END, r.get("counterparty_username", ""))
+        if selected_outgoing_id is not None and selected_outgoing_id in self._outgoing_request_ids:
+            idx = self._outgoing_request_ids.index(selected_outgoing_id)
+            self.outgoing_listbox.selection_set(idx)
+            self.outgoing_listbox.activate(idx)
+            self.outgoing_listbox.see(idx)
 
         self.request_listbox.delete(0, tk.END)
         self._incoming_request_ids.clear()
@@ -491,12 +515,27 @@ class HomePage(tk.Frame):
             for r in incoming:
                 self._incoming_request_ids.append(r.get("id"))
                 self.request_listbox.insert(tk.END, r.get("counterparty_username", ""))
+        if selected_incoming_id is not None and selected_incoming_id in self._incoming_request_ids:
+            idx = self._incoming_request_ids.index(selected_incoming_id)
+            self.request_listbox.selection_set(idx)
+            self.request_listbox.activate(idx)
+            self.request_listbox.see(idx)
 
         self.blocked_listbox.delete(0, tk.END)
         ok_b, blocked_users = api.list_blocked_users()
         if ok_b:
             for blocked_user in blocked_users:
                 self.blocked_listbox.insert(tk.END, blocked_user)
+        if selected_blocked_user:
+            try:
+                items = self.blocked_listbox.get(0, tk.END)
+                if selected_blocked_user in items:
+                    idx = items.index(selected_blocked_user)
+                    self.blocked_listbox.selection_set(idx)
+                    self.blocked_listbox.activate(idx)
+                    self.blocked_listbox.see(idx)
+            except Exception:
+                pass
 
     def logout(self):
         self._polling_active = False
