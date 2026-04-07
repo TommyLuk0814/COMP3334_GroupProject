@@ -1,28 +1,17 @@
 """Client API wrapper for the IM server."""
 
 import json
-import os
 from pathlib import Path
 import time
 import uuid
+import os
 
 import requests
 
-API_BASE_URL = os.environ.get("IM_SERVER_URL", "https://127.0.0.1:8443").strip()
+API_BASE_URL = "http://127.0.0.1:8000"
 
 os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost,::1")
 os.environ.setdefault("no_proxy", "127.0.0.1,localhost,::1")
-
-
-def _resolve_tls_verify():
-    ca_cert = os.environ.get("IM_TLS_CA_CERT", "").strip()
-    if ca_cert:
-        return ca_cert
-    insecure = os.environ.get("IM_TLS_INSECURE", "0").strip().lower()
-    return insecure not in ("1", "true", "yes", "on")
-
-
-TLS_VERIFY = _resolve_tls_verify()
 
 
 class IMClientAPI:
@@ -63,15 +52,33 @@ class IMClientAPI:
                 f"{API_BASE_URL}/register",
                 json={"username": username, "password": password},
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
         if resp.status_code != 200:
+            detail = None
             try:
-                detail = resp.json().get("detail", resp.text)
+                body = resp.json()
+                if isinstance(body, dict):
+                    d = body.get("detail")
+                    if isinstance(d, str):
+                        detail = d
+                    elif isinstance(d, list):
+                        parts = []
+                        for item in d:
+                            if isinstance(item, dict) and "msg" in item:
+                                parts.append(str(item.get("msg")))
+                            else:
+                                parts.append(str(item))
+                        detail = "; ".join(parts)
+                if not detail and isinstance(body, str):
+                    detail = body
             except Exception:
-                detail = resp.text
+                pass
+            if not detail:
+                text = (resp.text or "").strip()
+                detail = text if text else f"Registration failed (HTTP {resp.status_code})"
             return False, detail
         data = resp.json()
         self.current_user = username
@@ -83,7 +90,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/login/password",
                 json={"username": username, "password": password},
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -108,7 +115,7 @@ class IMClientAPI:
                     "device_id": self.device_id,
                 },
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -132,7 +139,7 @@ class IMClientAPI:
                 json={"public_key_pem": public_key_pem},
                 headers={"Authorization": f"Bearer {self.token}"},
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
             return resp.status_code == 200
         except requests.RequestException:
@@ -146,7 +153,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/keys/{username}",
                 headers={"Authorization": f"Bearer {self.token}"},
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
             if resp.status_code != 200:
                 return []
@@ -165,7 +172,7 @@ class IMClientAPI:
                 json=payload,
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -189,7 +196,7 @@ class IMClientAPI:
                 params=params,
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -468,7 +475,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/me",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -489,7 +496,7 @@ class IMClientAPI:
                 json={"identifier": identifier.strip()},
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -512,7 +519,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/friends/requests/incoming",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -532,7 +539,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/friends/requests/outgoing",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -552,7 +559,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/friends/requests/{int(request_id)}/accept",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -572,7 +579,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/friends/requests/{int(request_id)}/decline",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -592,7 +599,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/friends/requests/{int(request_id)}/cancel",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -612,7 +619,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/friends",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -633,7 +640,7 @@ class IMClientAPI:
                 json={"identifier": identifier.strip()},
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -657,7 +664,7 @@ class IMClientAPI:
                 json={"identifier": identifier.strip()},
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -681,7 +688,7 @@ class IMClientAPI:
                 json={"identifier": identifier.strip()},
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -704,7 +711,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/friends/blocks",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -724,7 +731,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/friends/requests/{int(request_id)}/block",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -751,7 +758,7 @@ class IMClientAPI:
                 json=payload,
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -771,7 +778,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/sessions/pending",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -796,7 +803,7 @@ class IMClientAPI:
                 json=payload,
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -816,7 +823,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/sessions/responded",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -846,7 +853,7 @@ class IMClientAPI:
                 json=payload,
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -866,7 +873,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/messages/poll",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -886,7 +893,7 @@ class IMClientAPI:
                 f"{API_BASE_URL}/messages/{int(message_id)}/ack",
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -918,7 +925,7 @@ class IMClientAPI:
                 json=payload,
                 headers=self._auth_headers(),
                 timeout=5,
-                verify=TLS_VERIFY,
+                verify=False,
             )
         except requests.RequestException as e:
             return False, f"Network error: {e}"
@@ -929,3 +936,4 @@ class IMClientAPI:
                 detail = resp.text
             return False, detail
         return True, resp.json().get("statuses", [])
+
