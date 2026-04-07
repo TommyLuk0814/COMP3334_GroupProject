@@ -1,8 +1,6 @@
 """FastAPI backend server handling user management, friend relationships, session handshakes, message exchange, and key management with appropriate rate limiting and security checks."""
 
 from datetime import datetime, timedelta
-import os
-from pathlib import Path
 from typing import Dict, Optional
 import secrets
 
@@ -704,25 +702,8 @@ def claim_prekey_bundle(
 
 
 if __name__ == "__main__":
-    cert_file = Path(os.environ.get("IM_TLS_CERT_FILE", str(Path(__file__).resolve().parent / "certs" / "localhost.crt")))
-    key_file = Path(os.environ.get("IM_TLS_KEY_FILE", str(Path(__file__).resolve().parent / "certs" / "localhost.key")))
-    host = os.environ.get("IM_SERVER_HOST", "127.0.0.1").strip() or "127.0.0.1"
-    port = int(os.environ.get("IM_SERVER_PORT", "8443"))
-
-    if not cert_file.exists() or not key_file.exists():
-        raise RuntimeError(
-            "TLS certificate/key not found. Set IM_TLS_CERT_FILE and IM_TLS_KEY_FILE, "
-            "or place localhost.crt and localhost.key under server/certs/."
-        )
-
     try:
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            ssl_certfile=str(cert_file),
-            ssl_keyfile=str(key_file),
-        )
+        uvicorn.run(app, host="127.0.0.1", port=8000)
     except KeyboardInterrupt:
         pass
     finally:
