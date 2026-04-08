@@ -340,12 +340,30 @@ class HomePage(tk.Frame):
         body.add(left_panel, weight=1)
         body.add(right_panel, weight=3)
 
-        ttk.Label(left_panel, text="Friend List").pack(anchor="w", pady=(0, 6))
-        self.friend_listbox = tk.Listbox(left_panel, height=12, exportselection=False)
+        left_canvas = tk.Canvas(left_panel, highlightthickness=0)
+        left_scrollbar = ttk.Scrollbar(left_panel, orient="vertical", command=left_canvas.yview)
+        left_canvas.configure(yscrollcommand=left_scrollbar.set)
+        left_scrollbar.pack(side="right", fill="y")
+        left_canvas.pack(side="left", fill="both", expand=True)
+
+        left_content = ttk.Frame(left_canvas)
+        left_canvas_window = left_canvas.create_window((0, 0), window=left_content, anchor="nw")
+
+        def _on_left_content_configure(_event):
+            left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+
+        def _on_left_canvas_configure(event):
+            left_canvas.itemconfigure(left_canvas_window, width=event.width)
+
+        left_content.bind("<Configure>", _on_left_content_configure)
+        left_canvas.bind("<Configure>", _on_left_canvas_configure)
+
+        ttk.Label(left_content, text="Friend List").pack(anchor="w", pady=(0, 6))
+        self.friend_listbox = tk.Listbox(left_content, height=12, exportselection=False)
         self.friend_listbox.pack(fill="x", pady=(0, 8))
         self.friend_listbox.bind("<<ListboxSelect>>", self.on_friend_selected)
 
-        friend_action_row = ttk.Frame(left_panel)
+        friend_action_row = ttk.Frame(left_content)
         friend_action_row.pack(fill="x", pady=(0, 12))
         ttk.Button(friend_action_row, text="Add Friend", command=self.add_friend).pack(side="left", padx=(0, 6))
         ttk.Button(friend_action_row, text="Remove Friend", command=self.remove_friend).pack(side="left", padx=(0, 6))
@@ -353,26 +371,26 @@ class HomePage(tk.Frame):
             side="left", padx=(0, 6)
         )
 
-        ttk.Label(left_panel, text="Pending Requests").pack(anchor="w", pady=(0, 4))
-        self.outgoing_listbox = tk.Listbox(left_panel, height=6)
+        ttk.Label(left_content, text="Pending Requests").pack(anchor="w", pady=(0, 4))
+        self.outgoing_listbox = tk.Listbox(left_content, height=6)
         self.outgoing_listbox.pack(fill="x", pady=(0, 4))
-        ttk.Button(left_panel, text="Cancel", command=self.cancel_outgoing_request).pack(
+        ttk.Button(left_content, text="Cancel", command=self.cancel_outgoing_request).pack(
             anchor="w", pady=(0, 10)
         )
 
-        ttk.Label(left_panel, text="Incoming Requests").pack(anchor="w", pady=(0, 6))
-        self.request_listbox = tk.Listbox(left_panel, height=6)
+        ttk.Label(left_content, text="Incoming Requests").pack(anchor="w", pady=(0, 6))
+        self.request_listbox = tk.Listbox(left_content, height=6)
         self.request_listbox.pack(fill="x", pady=(0, 8))
 
-        request_action_row = ttk.Frame(left_panel)
+        request_action_row = ttk.Frame(left_content)
         request_action_row.pack(fill="x")
         ttk.Button(request_action_row, text="Accept", command=self.accept_request).pack(side="left", padx=(0, 6))
         ttk.Button(request_action_row, text="Decline", command=self.decline_request).pack(side="left", padx=(0, 6))
 
-        ttk.Label(left_panel, text="Blocked Users").pack(anchor="w", pady=(12, 4))
-        self.blocked_listbox = tk.Listbox(left_panel, height=5)
+        ttk.Label(left_content, text="Blocked Users").pack(anchor="w", pady=(12, 4))
+        self.blocked_listbox = tk.Listbox(left_content, height=5)
         self.blocked_listbox.pack(fill="x", pady=(0, 8))
-        blocked_action_row = ttk.Frame(left_panel)
+        blocked_action_row = ttk.Frame(left_content)
         blocked_action_row.pack(anchor="w", pady=(0, 10))
         ttk.Button(blocked_action_row, text="Block", command=self.block_friend).pack(side="left", padx=(0, 6))
         ttk.Button(blocked_action_row, text="Unblock", command=self.unblock_user).pack(side="left")
